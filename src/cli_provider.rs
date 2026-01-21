@@ -1360,5 +1360,4 @@ Resets 11am (Asia/Tokyo)
         // Attempt 3: still 8000ms (capped)
         assert_eq!(calculate_startup_delay(3), 8000);
     }
-
 }

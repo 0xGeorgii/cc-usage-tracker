@@ -32,7 +32,6 @@ use provider::UsageProvider;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-
 /// Application state shared between the polling task and UI thread.
 #[derive(Debug, Clone)]
 struct AppState {
@@ -95,8 +94,7 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         let session_bar = display::wide_progress_bar(usage.five_hour.utilization);
         let session_item = gtk::MenuItem::with_label(&format!(
             "{}  {:.0}%",
-            session_bar,
-            usage.five_hour.utilization
+            session_bar, usage.five_hour.utilization
         ));
         session_item.set_sensitive(false);
         menu.append(&session_item);
@@ -119,8 +117,7 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         let weekly_bar = display::wide_progress_bar(usage.seven_day.utilization);
         let weekly_item = gtk::MenuItem::with_label(&format!(
             "{}  {:.0}%",
-            weekly_bar,
-            usage.seven_day.utilization
+            weekly_bar, usage.seven_day.utilization
         ));
         weekly_item.set_sensitive(false);
         menu.append(&weekly_item);
@@ -144,8 +141,7 @@ fn build_menu(state: &AppState) -> gtk::Menu {
                 let sonnet_bar = display::wide_progress_bar(sonnet.utilization);
                 let sonnet_item = gtk::MenuItem::with_label(&format!(
                     "{}  {:.0}%",
-                    sonnet_bar,
-                    sonnet.utilization
+                    sonnet_bar, sonnet.utilization
                 ));
                 sonnet_item.set_sensitive(false);
                 menu.append(&sonnet_item);
@@ -156,16 +152,13 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         if display::show_updated_time() {
             menu.append(&gtk::SeparatorMenuItem::new());
 
-            let updated_item = gtk::MenuItem::with_label(&format!(
-                "Updated: {}",
-                display::format_current_time()
-            ));
+            let updated_item =
+                gtk::MenuItem::with_label(&format!("Updated: {}", display::format_current_time()));
             updated_item.set_sensitive(false);
             menu.append(&updated_item);
         }
     } else if let Some(ref error) = state.error {
-        let error_header =
-            gtk::MenuItem::with_label(&display::format_section_header("ERROR"));
+        let error_header = gtk::MenuItem::with_label(&display::format_section_header("ERROR"));
         error_header.set_sensitive(false);
         menu.append(&error_header);
 

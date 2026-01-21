@@ -100,10 +100,7 @@ pub fn format_tray_label(usage: &UsageResponse) -> String {
     let reset_time = format_time_compact(usage.five_hour.resets_at);
     format!(
         "{} {:.0}% {}{}",
-        session_bar,
-        usage.five_hour.utilization,
-        theme.time_icon,
-        reset_time
+        session_bar, usage.five_hour.utilization, theme.time_icon, reset_time
     )
 }
 
