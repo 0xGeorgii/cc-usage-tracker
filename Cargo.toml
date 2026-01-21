@@ -12,10 +12,10 @@ categories = ["command-line-utilities"]
 async-trait = "0.1"
 libappindicator = "0.9"
 gtk = "0.18"
-glib = "0.20"
+glib = "0.21.5"
 regex-lite = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "process"] }
-dirs = "5.0"
+dirs = "6.0"

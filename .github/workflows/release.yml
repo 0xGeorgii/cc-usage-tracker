@@ -28,9 +28,9 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libappindicator3-dev
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: actions-rs/toolchain@v1
         with:
-          targets: ${{ matrix.target }}
+          target: ${{ matrix.target }}
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
