@@ -80,6 +80,7 @@ fn rebuild_menu_now() {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn build_menu(state: &AppState) -> gtk::Menu {
     let menu = gtk::Menu::new();
 
@@ -238,9 +239,9 @@ fn build_menu(state: &AppState) -> gtk::Menu {
     let current_interval = display::update_interval_secs();
     for (secs, label) in display::update_interval_options() {
         let item_label = if *secs == current_interval {
-            format!("● {}", label)
+            format!("● {label}")
         } else {
-            format!("  {}", label)
+            format!("  {label}")
         };
         let interval_option = gtk::MenuItem::with_label(&item_label);
         let secs_to_set = *secs;

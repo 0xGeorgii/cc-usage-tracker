@@ -195,6 +195,11 @@ impl ThemeName {
 
 impl Theme {
     /// Create a mini progress bar (for tray label)
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn mini_bar(&self, percentage: f64) -> String {
         let filled = ((percentage / 100.0) * self.bar_segments as f64).round() as usize;
         let filled = filled.min(self.bar_segments);
@@ -207,6 +212,11 @@ impl Theme {
     }
 
     /// Create a wide progress bar (for menu)
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn wide_bar(&self, percentage: f64) -> String {
         let filled = ((percentage / 100.0) * self.menu_bar_segments as f64).round() as usize;
         let filled = filled.min(self.menu_bar_segments);

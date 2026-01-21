@@ -8,7 +8,7 @@ use crate::theme::{Theme, ThemeName};
 use chrono::{DateTime, Local, Utc};
 use std::sync::RwLock;
 
-/// Current active theme - stored in a RwLock for runtime switching
+/// Current active theme - stored in a `RwLock` for runtime switching
 static CURRENT_THEME: RwLock<ThemeName> = RwLock::new(ThemeName::Minimal);
 
 /// Display options
@@ -167,9 +167,9 @@ fn format_time_compact(reset_time: Option<DateTime<Utc>>) -> String {
     let minutes = (total_seconds % 3600) / 60;
 
     if hours > 0 {
-        format!("{}h{:02}m", hours, minutes)
+        format!("{hours}h{minutes:02}m")
     } else {
-        format!("{}m", minutes)
+        format!("{minutes}m")
     }
 }
 

@@ -597,7 +597,7 @@ impl Default for ClaudeCliProvider {
 }
 
 /// Calculate adaptive startup delay based on attempt number.
-/// Uses exponential backoff: 2s, 4s, 8s (capped at MAX_STARTUP_DELAY_MS)
+/// Uses exponential backoff: 2s, 4s, 8s (capped at `MAX_STARTUP_DELAY_MS`)
 fn calculate_startup_delay(attempt: u32) -> u64 {
     let delay = BASE_STARTUP_DELAY_MS * (1 << attempt); // 2^attempt multiplier
     delay.min(MAX_STARTUP_DELAY_MS)
