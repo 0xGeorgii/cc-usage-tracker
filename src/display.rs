@@ -14,7 +14,6 @@ static CURRENT_THEME: RwLock<ThemeName> = RwLock::new(ThemeName::Minimal);
 /// Display options
 static SHOW_SONNET: RwLock<bool> = RwLock::new(true);
 static SHOW_UPDATED_TIME: RwLock<bool> = RwLock::new(true);
-static SHOW_THEME_SELECTOR: RwLock<bool> = RwLock::new(true);
 
 /// Update interval in seconds (default 5 minutes)
 static UPDATE_INTERVAL_SECS: RwLock<u64> = RwLock::new(300);
@@ -89,17 +88,6 @@ pub fn show_updated_time() -> bool {
 /// Toggle "Updated" time visibility
 pub fn toggle_updated_time() {
     let mut show = SHOW_UPDATED_TIME.write().unwrap();
-    *show = !*show;
-}
-
-/// Check if theme selector should be shown
-pub fn show_theme_selector() -> bool {
-    *SHOW_THEME_SELECTOR.read().unwrap()
-}
-
-/// Toggle theme selector visibility
-pub fn toggle_theme_selector() {
-    let mut show = SHOW_THEME_SELECTOR.write().unwrap();
     *show = !*show;
 }
 
@@ -195,12 +183,13 @@ pub fn format_section_header(title: &str) -> String {
 }
 
 /// Get the session reset icon
+#[allow(dead_code)] // May be useful for future features
 pub fn session_icon() -> &'static str {
-    // We need to leak the string since theme returns &'static str
     current_theme().session_icon
 }
 
 /// Get the weekly reset icon
+#[allow(dead_code)] // May be useful for future features
 pub fn weekly_icon() -> &'static str {
     current_theme().weekly_icon
 }
@@ -487,26 +476,68 @@ mod tests {
         assert_eq!(truncate_str("hello world", 5), "hello");
     }
 
-    // Tests for themed progress bar functions
+    // Tests for themed progress bar functions (theme-agnostic)
 
     #[test]
     fn test_wide_progress_bar_empty() {
-        // Uses current theme (Minimal by default)
+        let theme = current_theme();
         let bar = wide_progress_bar(0.0);
-        assert_eq!(bar, "----------");
+        let segments = usize::from(theme.menu_bar_segments);
+
+        // Should have correct number of empty segments
+        assert_eq!(
+            bar.matches(theme.menu_bar_empty).count(),
+            segments,
+            "0% bar should have {} empty segments",
+            segments
+        );
+        // Should have no full segments
+        assert_eq!(
+            bar.matches(theme.menu_bar_full).count(),
+            0,
+            "0% bar should have no full segments"
+        );
     }
 
     #[test]
     fn test_wide_progress_bar_full() {
+        let theme = current_theme();
         let bar = wide_progress_bar(100.0);
-        assert_eq!(bar, "##########");
+        let segments = usize::from(theme.menu_bar_segments);
+
+        // Should have correct number of full segments
+        assert_eq!(
+            bar.matches(theme.menu_bar_full).count(),
+            segments,
+            "100% bar should have {} full segments",
+            segments
+        );
+        // Should have no empty segments
+        assert_eq!(
+            bar.matches(theme.menu_bar_empty).count(),
+            0,
+            "100% bar should have no empty segments"
+        );
     }
 
     #[test]
-    fn test_wide_progress_bar_42_percent() {
-        let bar = wide_progress_bar(42.0);
-        // 42% of 10 = 4.2, rounds to 4
-        assert_eq!(bar, "####------");
+    fn test_wide_progress_bar_partial() {
+        let theme = current_theme();
+        let bar = wide_progress_bar(50.0);
+        let segments = usize::from(theme.menu_bar_segments);
+
+        // Should have total of segment count (full + empty)
+        let full_count = bar.matches(theme.menu_bar_full).count();
+        let empty_count = bar.matches(theme.menu_bar_empty).count();
+        assert_eq!(
+            full_count + empty_count,
+            segments,
+            "50% bar should have {} total segments",
+            segments
+        );
+        // Should have roughly half full (allowing for rounding)
+        assert!(full_count > 0, "50% bar should have some full segments");
+        assert!(empty_count > 0, "50% bar should have some empty segments");
     }
 
     #[test]

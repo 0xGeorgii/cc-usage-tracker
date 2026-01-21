@@ -80,84 +80,78 @@ fn rebuild_menu_now() {
     }
 }
 
+/// Build a compact usage row: header with stats + progress bar
+fn build_usage_row(menu: &gtk::Menu, label: &str, utilization: f64, reset_time: &str) {
+    // Header line with inline stats: [ SESSION ]  20%  ·  Resets in 3h 42m
+    let header = gtk::MenuItem::with_label(&format!(
+        "{} {:.0}% · {}",
+        display::format_section_header(label),
+        utilization,
+        reset_time
+    ));
+    header.set_sensitive(false);
+    menu.append(&header);
+
+    // Progress bar
+    let bar = display::wide_progress_bar(utilization);
+    let bar_item = gtk::MenuItem::with_label(&bar);
+    bar_item.set_sensitive(false);
+    menu.append(&bar_item);
+}
+
 /// Build the usage data sections (session, weekly, sonnet)
 fn build_usage_sections(menu: &gtk::Menu, usage: &api::UsageResponse) {
-    // Session section
-    let session_header = gtk::MenuItem::with_label(&display::format_section_header("SESSION (5h)"));
-    session_header.set_sensitive(false);
-    menu.append(&session_header);
+    // Session
+    build_usage_row(
+        menu,
+        "SESSION",
+        usage.five_hour.utilization,
+        &format!(
+            "Resets in {}",
+            display::format_time_until_short(usage.five_hour.resets_at)
+        ),
+    );
 
-    let session_bar = display::wide_progress_bar(usage.five_hour.utilization);
-    let session_item = gtk::MenuItem::with_label(&format!(
-        "{session_bar}  {:.0}%",
-        usage.five_hour.utilization
-    ));
-    session_item.set_sensitive(false);
-    menu.append(&session_item);
+    // Weekly
+    build_usage_row(
+        menu,
+        "WEEKLY",
+        usage.seven_day.utilization,
+        &format!(
+            "Resets in {}",
+            display::format_time_until_short(usage.seven_day.resets_at)
+        ),
+    );
 
-    let session_reset = gtk::MenuItem::with_label(&format!(
-        "{} Resets in {}",
-        display::session_icon(),
-        display::format_time_until_short(usage.five_hour.resets_at)
-    ));
-    session_reset.set_sensitive(false);
-    menu.append(&session_reset);
-
-    // Weekly section
-    let weekly_header = gtk::MenuItem::with_label(&display::format_section_header("WEEKLY (7d)"));
-    weekly_header.set_sensitive(false);
-    menu.append(&weekly_header);
-
-    let weekly_bar = display::wide_progress_bar(usage.seven_day.utilization);
-    let weekly_item = gtk::MenuItem::with_label(&format!(
-        "{weekly_bar}  {:.0}%",
-        usage.seven_day.utilization
-    ));
-    weekly_item.set_sensitive(false);
-    menu.append(&weekly_item);
-
-    let weekly_reset = gtk::MenuItem::with_label(&format!(
-        "{} Resets in {}",
-        display::weekly_icon(),
-        display::format_time_until_short(usage.seven_day.resets_at)
-    ));
-    weekly_reset.set_sensitive(false);
-    menu.append(&weekly_reset);
-
-    // Sonnet section (if available and enabled)
+    // Sonnet (if available and enabled)
     if display::show_sonnet() {
         if let Some(ref sonnet) = usage.seven_day_opus {
-            let sonnet_header =
-                gtk::MenuItem::with_label(&display::format_section_header("SONNET (7d)"));
-            sonnet_header.set_sensitive(false);
-            menu.append(&sonnet_header);
-
-            let sonnet_bar = display::wide_progress_bar(sonnet.utilization);
-            let sonnet_item =
-                gtk::MenuItem::with_label(&format!("{sonnet_bar}  {:.0}%", sonnet.utilization));
-            sonnet_item.set_sensitive(false);
-            menu.append(&sonnet_item);
+            build_usage_row(menu, "SONNET", sonnet.utilization, "7-day window");
         }
     }
 
-    // Updated time footer
+    // Updated time (smaller, at end of status section)
     if display::show_updated_time() {
-        menu.append(&gtk::SeparatorMenuItem::new());
         let updated_item =
-            gtk::MenuItem::with_label(&format!("Updated: {}", display::format_current_time()));
+            gtk::MenuItem::with_label(&format!("Updated {}", display::format_current_time()));
         updated_item.set_sensitive(false);
         menu.append(&updated_item);
     }
 }
 
-/// Build the options submenu with toggle items
-fn build_options_submenu() -> gtk::Menu {
+/// Build the consolidated Settings submenu
+fn build_settings_submenu() -> gtk::Menu {
     let submenu = gtk::Menu::new();
+
+    // === DISPLAY section ===
+    let display_header = gtk::MenuItem::with_label("[ DISPLAY ]");
+    display_header.set_sensitive(false);
+    submenu.append(&display_header);
 
     let sonnet_label = if display::show_sonnet() {
         "● Show Sonnet"
     } else {
-        "  Show Sonnet"
+        "○ Show Sonnet"
     };
     let sonnet_toggle = gtk::MenuItem::with_label(sonnet_label);
     sonnet_toggle.connect_activate(|_| {
@@ -169,7 +163,7 @@ fn build_options_submenu() -> gtk::Menu {
     let updated_label = if display::show_updated_time() {
         "● Show Updated Time"
     } else {
-        "  Show Updated Time"
+        "○ Show Updated Time"
     };
     let updated_toggle = gtk::MenuItem::with_label(updated_label);
     updated_toggle.connect_activate(|_| {
@@ -178,31 +172,18 @@ fn build_options_submenu() -> gtk::Menu {
     });
     submenu.append(&updated_toggle);
 
-    let theme_sel_label = if display::show_theme_selector() {
-        "● Show Theme Selector"
-    } else {
-        "  Show Theme Selector"
-    };
-    let theme_sel_toggle = gtk::MenuItem::with_label(theme_sel_label);
-    theme_sel_toggle.connect_activate(|_| {
-        display::toggle_theme_selector();
-        rebuild_menu_now();
-    });
-    submenu.append(&theme_sel_toggle);
+    // === UPDATE INTERVAL section ===
+    submenu.append(&gtk::SeparatorMenuItem::new());
+    let interval_header = gtk::MenuItem::with_label("[ UPDATE INTERVAL ]");
+    interval_header.set_sensitive(false);
+    submenu.append(&interval_header);
 
-    submenu
-}
-
-/// Build the update interval submenu
-fn build_interval_submenu() -> gtk::Menu {
-    let submenu = gtk::Menu::new();
     let current_interval = display::update_interval_secs();
-
     for (secs, label) in display::update_interval_options() {
         let item_label = if *secs == current_interval {
             format!("● {label}")
         } else {
-            format!("  {label}")
+            format!("○ {label}")
         };
         let interval_option = gtk::MenuItem::with_label(&item_label);
         let secs_to_set = *secs;
@@ -213,19 +194,18 @@ fn build_interval_submenu() -> gtk::Menu {
         submenu.append(&interval_option);
     }
 
-    submenu
-}
+    // === THEME section ===
+    submenu.append(&gtk::SeparatorMenuItem::new());
+    let theme_header = gtk::MenuItem::with_label("[ THEME ]");
+    theme_header.set_sensitive(false);
+    submenu.append(&theme_header);
 
-/// Build the theme selection submenu
-fn build_theme_submenu() -> gtk::Menu {
-    let submenu = gtk::Menu::new();
     let current = display::current_theme_name();
-
     for theme_name in theme::ThemeName::all() {
         let label = if *theme_name == current {
             format!("● {}", theme_name.as_str())
         } else {
-            format!("  {}", theme_name.as_str())
+            format!("○ {}", theme_name.as_str())
         };
         let theme_option = gtk::MenuItem::with_label(&label);
         let theme_to_set = *theme_name;
@@ -353,22 +333,36 @@ fn build_time_period_submenu(period: display::TimePeriod) -> gtk::Menu {
     submenu
 }
 
-/// Build the Start Timer submenu with Morning/Afternoon/Evening submenus
+/// Build the Schedule Timer submenu with Morning/Afternoon/Evening submenus
 fn build_timer_submenu() -> gtk::Menu {
     let submenu = gtk::Menu::new();
 
     for &period in display::TimePeriod::all() {
         // Show dot if timer is scheduled for this period
-        let has_timer = display::scheduled_timer(period).is_some();
-        let label = if has_timer {
-            format!("● {}", period.name())
+        let scheduled_time = display::scheduled_timer(period);
+        let label = if let Some(time) = scheduled_time {
+            format!("● {} ({})", period.name(), time.format("%-I:%M %p"))
         } else {
-            format!("  {}", period.name())
+            format!("○ {}", period.name())
         };
 
         let period_item = gtk::MenuItem::with_label(&label);
         period_item.set_submenu(Some(&build_time_period_submenu(period)));
         submenu.append(&period_item);
+    }
+
+    // Cancel All Timers (if any are scheduled)
+    if display::has_any_scheduled_timer() {
+        submenu.append(&gtk::SeparatorMenuItem::new());
+        let cancel_all = gtk::MenuItem::with_label("Cancel All Timers");
+        cancel_all.connect_activate(|_| {
+            for &period in display::TimePeriod::all() {
+                display::clear_scheduled_timer(period);
+            }
+            rebuild_menu_now();
+            eprintln!("[timer] All timers cancelled");
+        });
+        submenu.append(&cancel_all);
     }
 
     submenu
@@ -377,7 +371,9 @@ fn build_timer_submenu() -> gtk::Menu {
 fn build_menu(state: &AppState) -> gtk::Menu {
     let menu = gtk::Menu::new();
 
-    // Content section: usage data, error, or loading
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ZONE 1: Status (usage data, error, or loading)
+    // ═══════════════════════════════════════════════════════════════════════════
     if let Some(ref usage) = state.usage {
         build_usage_sections(&menu, usage);
     } else if let Some(ref error) = state.error {
@@ -403,52 +399,48 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         menu.append(&loading_item);
     }
 
-    // Show scheduled timer status if any are active
-    let scheduled = display::all_scheduled_timers();
-    if !scheduled.is_empty() {
-        menu.append(&gtk::SeparatorMenuItem::new());
-        for (period, time) in &scheduled {
-            let timer_status = gtk::MenuItem::with_label(&format!(
-                "⏰ {}: {}",
-                period.name(),
-                time.format("%-I:%M %p")
-            ));
-            timer_status.set_sensitive(false);
-            menu.append(&timer_status);
-        }
-    }
-
-    // Separator before settings
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ZONE 2: Timer scheduling
+    // ═══════════════════════════════════════════════════════════════════════════
     menu.append(&gtk::SeparatorMenuItem::new());
 
-    // Start Timer submenu
+    // Show consolidated scheduled timers status
+    let scheduled = display::all_scheduled_timers();
+    if !scheduled.is_empty() {
+        let times: Vec<String> = scheduled
+            .iter()
+            .map(|(_, time)| time.format("%-I:%M %p").to_string())
+            .collect();
+        let timer_status =
+            gtk::MenuItem::with_label(&format!("⏰ Scheduled: {}", times.join(", ")));
+        timer_status.set_sensitive(false);
+        menu.append(&timer_status);
+    }
+
+    // Schedule Timer submenu
     let timer_label = if display::has_any_scheduled_timer() {
-        "Start Timer ⏰"
+        "Schedule Timer ⏰"
     } else {
-        "Start Timer"
+        "Schedule Timer"
     };
     let timer_item = gtk::MenuItem::with_label(timer_label);
     timer_item.set_submenu(Some(&build_timer_submenu()));
     menu.append(&timer_item);
 
-    // Options submenu
-    let options_item = gtk::MenuItem::with_label("Options");
-    options_item.set_submenu(Some(&build_options_submenu()));
-    menu.append(&options_item);
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ZONE 3: Settings
+    // ═══════════════════════════════════════════════════════════════════════════
+    menu.append(&gtk::SeparatorMenuItem::new());
 
-    // Update Interval submenu
-    let interval_item = gtk::MenuItem::with_label("Update Interval");
-    interval_item.set_submenu(Some(&build_interval_submenu()));
-    menu.append(&interval_item);
+    let settings_item = gtk::MenuItem::with_label("Settings");
+    settings_item.set_submenu(Some(&build_settings_submenu()));
+    menu.append(&settings_item);
 
-    // Theme submenu (if enabled)
-    if display::show_theme_selector() {
-        let theme_item = gtk::MenuItem::with_label("Theme");
-        theme_item.set_submenu(Some(&build_theme_submenu()));
-        menu.append(&theme_item);
-    }
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ZONE 4: Quit
+    // ═══════════════════════════════════════════════════════════════════════════
+    menu.append(&gtk::SeparatorMenuItem::new());
 
-    // Quit item
     let quit_item = gtk::MenuItem::with_label(&format!("{} Quit", display::quit_icon()));
     quit_item.connect_activate(|_| {
         gtk::main_quit();
