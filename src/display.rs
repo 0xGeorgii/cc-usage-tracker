@@ -416,22 +416,22 @@ mod tests {
 
     #[test]
     fn test_wide_progress_bar_empty() {
-        // Uses current theme (Modern by default)
+        // Uses current theme (Minimal by default)
         let bar = wide_progress_bar(0.0);
-        assert_eq!(bar, "░░░░░░░░░░");
+        assert_eq!(bar, "----------");
     }
 
     #[test]
     fn test_wide_progress_bar_full() {
         let bar = wide_progress_bar(100.0);
-        assert_eq!(bar, "██████████");
+        assert_eq!(bar, "##########");
     }
 
     #[test]
     fn test_wide_progress_bar_42_percent() {
         let bar = wide_progress_bar(42.0);
         // 42% of 10 = 4.2, rounds to 4
-        assert_eq!(bar, "████░░░░░░");
+        assert_eq!(bar, "####------");
     }
 
     #[test]
@@ -454,8 +454,8 @@ mod tests {
     #[test]
     fn test_format_loading_label() {
         let label = format_loading_label();
-        // Should have 5 empty segments for Modern theme
-        assert!(label.len() > 0);
+        // Should have 5 empty segments
+        assert!(!label.is_empty());
     }
 
     #[test]

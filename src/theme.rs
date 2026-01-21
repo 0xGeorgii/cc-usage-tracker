@@ -28,16 +28,16 @@ pub struct Theme {
     pub bar_full: &'static str,
     /// Character for empty portion of mini progress bar (tray)
     pub bar_empty: &'static str,
-    /// Number of segments in mini progress bar
-    pub bar_segments: usize,
+    /// Number of segments in mini progress bar (max 255)
+    pub bar_segments: u8,
     /// Icon/prefix before reset time
     pub time_icon: &'static str,
     /// Character for filled portion of wide progress bar (menu)
     pub menu_bar_full: &'static str,
     /// Character for empty portion of wide progress bar (menu)
     pub menu_bar_empty: &'static str,
-    /// Number of segments in wide progress bar
-    pub menu_bar_segments: usize,
+    /// Number of segments in wide progress bar (max 255)
+    pub menu_bar_segments: u8,
     /// Icon for session reset time
     pub session_icon: &'static str,
     /// Icon for weekly reset time
@@ -193,17 +193,21 @@ impl ThemeName {
     }
 }
 
+/// Convert a percentage (0-100) to filled segment count.
+/// Returns a value in range [0, segments].
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn percentage_to_filled(percentage: f64, segments: u8) -> usize {
+    // Clamp to [0, 100], compute ratio, round to nearest segment
+    let filled = (percentage.clamp(0.0, 100.0) / 100.0 * f64::from(segments) + 0.5).floor();
+    // Safe: clamped percentage guarantees filled is in [0, segments]
+    (filled as u8).min(segments) as usize
+}
+
 impl Theme {
     /// Create a mini progress bar (for tray label)
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
     pub fn mini_bar(&self, percentage: f64) -> String {
-        let filled = ((percentage / 100.0) * self.bar_segments as f64).round() as usize;
-        let filled = filled.min(self.bar_segments);
-        let empty = self.bar_segments - filled;
+        let filled = percentage_to_filled(percentage, self.bar_segments);
+        let empty = usize::from(self.bar_segments) - filled;
         format!(
             "{}{}",
             self.bar_full.repeat(filled),
@@ -212,15 +216,9 @@ impl Theme {
     }
 
     /// Create a wide progress bar (for menu)
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss
-    )]
     pub fn wide_bar(&self, percentage: f64) -> String {
-        let filled = ((percentage / 100.0) * self.menu_bar_segments as f64).round() as usize;
-        let filled = filled.min(self.menu_bar_segments);
-        let empty = self.menu_bar_segments - filled;
+        let filled = percentage_to_filled(percentage, self.menu_bar_segments);
+        let empty = usize::from(self.menu_bar_segments) - filled;
         format!(
             "{}{}",
             self.menu_bar_full.repeat(filled),
@@ -237,7 +235,7 @@ impl Theme {
     pub fn loading_label(&self) -> String {
         format!(
             "{} {}",
-            self.bar_empty.repeat(self.bar_segments),
+            self.bar_empty.repeat(usize::from(self.bar_segments)),
             self.loading_pct
         )
     }

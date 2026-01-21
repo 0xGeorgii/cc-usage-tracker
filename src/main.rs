@@ -80,117 +80,80 @@ fn rebuild_menu_now() {
     }
 }
 
-#[allow(clippy::too_many_lines)]
-fn build_menu(state: &AppState) -> gtk::Menu {
-    let menu = gtk::Menu::new();
+/// Build the usage data sections (session, weekly, sonnet)
+fn build_usage_sections(menu: &gtk::Menu, usage: &api::UsageResponse) {
+    // Session section
+    let session_header = gtk::MenuItem::with_label(&display::format_section_header("SESSION (5h)"));
+    session_header.set_sensitive(false);
+    menu.append(&session_header);
 
-    if let Some(ref usage) = state.usage {
-        // ━━━ SESSION SECTION ━━━
-        let session_header =
-            gtk::MenuItem::with_label(&display::format_section_header("SESSION (5h)"));
-        session_header.set_sensitive(false);
-        menu.append(&session_header);
+    let session_bar = display::wide_progress_bar(usage.five_hour.utilization);
+    let session_item = gtk::MenuItem::with_label(&format!(
+        "{session_bar}  {:.0}%",
+        usage.five_hour.utilization
+    ));
+    session_item.set_sensitive(false);
+    menu.append(&session_item);
 
-        // Progress bar with percentage
-        let session_bar = display::wide_progress_bar(usage.five_hour.utilization);
-        let session_item = gtk::MenuItem::with_label(&format!(
-            "{}  {:.0}%",
-            session_bar, usage.five_hour.utilization
-        ));
-        session_item.set_sensitive(false);
-        menu.append(&session_item);
+    let session_reset = gtk::MenuItem::with_label(&format!(
+        "{} Resets in {}",
+        display::session_icon(),
+        display::format_time_until_short(usage.five_hour.resets_at)
+    ));
+    session_reset.set_sensitive(false);
+    menu.append(&session_reset);
 
-        let session_reset = gtk::MenuItem::with_label(&format!(
-            "{} Resets in {}",
-            display::session_icon(),
-            display::format_time_until_short(usage.five_hour.resets_at)
-        ));
-        session_reset.set_sensitive(false);
-        menu.append(&session_reset);
+    // Weekly section
+    let weekly_header = gtk::MenuItem::with_label(&display::format_section_header("WEEKLY (7d)"));
+    weekly_header.set_sensitive(false);
+    menu.append(&weekly_header);
 
-        // ━━━ WEEKLY SECTION ━━━
-        let weekly_header =
-            gtk::MenuItem::with_label(&display::format_section_header("WEEKLY (7d)"));
-        weekly_header.set_sensitive(false);
-        menu.append(&weekly_header);
+    let weekly_bar = display::wide_progress_bar(usage.seven_day.utilization);
+    let weekly_item = gtk::MenuItem::with_label(&format!(
+        "{weekly_bar}  {:.0}%",
+        usage.seven_day.utilization
+    ));
+    weekly_item.set_sensitive(false);
+    menu.append(&weekly_item);
 
-        // Progress bar with percentage
-        let weekly_bar = display::wide_progress_bar(usage.seven_day.utilization);
-        let weekly_item = gtk::MenuItem::with_label(&format!(
-            "{}  {:.0}%",
-            weekly_bar, usage.seven_day.utilization
-        ));
-        weekly_item.set_sensitive(false);
-        menu.append(&weekly_item);
+    let weekly_reset = gtk::MenuItem::with_label(&format!(
+        "{} Resets in {}",
+        display::weekly_icon(),
+        display::format_time_until_short(usage.seven_day.resets_at)
+    ));
+    weekly_reset.set_sensitive(false);
+    menu.append(&weekly_reset);
 
-        let weekly_reset = gtk::MenuItem::with_label(&format!(
-            "{} Resets in {}",
-            display::weekly_icon(),
-            display::format_time_until_short(usage.seven_day.resets_at)
-        ));
-        weekly_reset.set_sensitive(false);
-        menu.append(&weekly_reset);
+    // Sonnet section (if available and enabled)
+    if display::show_sonnet() {
+        if let Some(ref sonnet) = usage.seven_day_opus {
+            let sonnet_header =
+                gtk::MenuItem::with_label(&display::format_section_header("SONNET (7d)"));
+            sonnet_header.set_sensitive(false);
+            menu.append(&sonnet_header);
 
-        // ━━━ SONNET SECTION (if available and enabled) ━━━
-        if display::show_sonnet() {
-            if let Some(ref sonnet) = usage.seven_day_opus {
-                let sonnet_header =
-                    gtk::MenuItem::with_label(&display::format_section_header("SONNET (7d)"));
-                sonnet_header.set_sensitive(false);
-                menu.append(&sonnet_header);
-
-                let sonnet_bar = display::wide_progress_bar(sonnet.utilization);
-                let sonnet_item = gtk::MenuItem::with_label(&format!(
-                    "{}  {:.0}%",
-                    sonnet_bar, sonnet.utilization
-                ));
-                sonnet_item.set_sensitive(false);
-                menu.append(&sonnet_item);
-            }
+            let sonnet_bar = display::wide_progress_bar(sonnet.utilization);
+            let sonnet_item =
+                gtk::MenuItem::with_label(&format!("{sonnet_bar}  {:.0}%", sonnet.utilization));
+            sonnet_item.set_sensitive(false);
+            menu.append(&sonnet_item);
         }
-
-        // ━━━ FOOTER ━━━
-        if display::show_updated_time() {
-            menu.append(&gtk::SeparatorMenuItem::new());
-
-            let updated_item =
-                gtk::MenuItem::with_label(&format!("Updated: {}", display::format_current_time()));
-            updated_item.set_sensitive(false);
-            menu.append(&updated_item);
-        }
-    } else if let Some(ref error) = state.error {
-        let error_header = gtk::MenuItem::with_label(&display::format_section_header("ERROR"));
-        error_header.set_sensitive(false);
-        menu.append(&error_header);
-
-        let error_item = gtk::MenuItem::with_label(&format!(
-            "{} {}",
-            display::error_icon(),
-            if error.len() > 40 {
-                &error[..40]
-            } else {
-                error
-            }
-        ));
-        error_item.set_sensitive(false);
-        menu.append(&error_item);
-    } else {
-        let loading_item = gtk::MenuItem::with_label(&format!(
-            "{} Loading usage data...",
-            display::loading_indicator()
-        ));
-        loading_item.set_sensitive(false);
-        menu.append(&loading_item);
     }
 
-    // Separator before options/theme/quit
-    menu.append(&gtk::SeparatorMenuItem::new());
+    // Updated time footer
+    if display::show_updated_time() {
+        menu.append(&gtk::SeparatorMenuItem::new());
+        let updated_item =
+            gtk::MenuItem::with_label(&format!("Updated: {}", display::format_current_time()));
+        updated_item.set_sensitive(false);
+        menu.append(&updated_item);
+    }
+}
 
-    // Options submenu
-    let options_item = gtk::MenuItem::with_label("Options");
-    let options_submenu = gtk::Menu::new();
+/// Build the options submenu with toggle items
+fn build_options_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
 
-    // Toggle: Show Sonnet section
     let sonnet_label = if display::show_sonnet() {
         "● Show Sonnet"
     } else {
@@ -201,9 +164,8 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         display::toggle_sonnet();
         rebuild_menu_now();
     });
-    options_submenu.append(&sonnet_toggle);
+    submenu.append(&sonnet_toggle);
 
-    // Toggle: Show updated time
     let updated_label = if display::show_updated_time() {
         "● Show Updated Time"
     } else {
@@ -214,9 +176,8 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         display::toggle_updated_time();
         rebuild_menu_now();
     });
-    options_submenu.append(&updated_toggle);
+    submenu.append(&updated_toggle);
 
-    // Toggle: Show theme selector
     let theme_sel_label = if display::show_theme_selector() {
         "● Show Theme Selector"
     } else {
@@ -227,16 +188,16 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         display::toggle_theme_selector();
         rebuild_menu_now();
     });
-    options_submenu.append(&theme_sel_toggle);
+    submenu.append(&theme_sel_toggle);
 
-    options_item.set_submenu(Some(&options_submenu));
-    menu.append(&options_item);
+    submenu
+}
 
-    // Update Interval submenu
-    let interval_item = gtk::MenuItem::with_label("Update Interval");
-    let interval_submenu = gtk::Menu::new();
-
+/// Build the update interval submenu
+fn build_interval_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
     let current_interval = display::update_interval_secs();
+
     for (secs, label) in display::update_interval_options() {
         let item_label = if *secs == current_interval {
             format!("● {label}")
@@ -249,34 +210,81 @@ fn build_menu(state: &AppState) -> gtk::Menu {
             display::set_update_interval_secs(secs_to_set);
             rebuild_menu_now();
         });
-        interval_submenu.append(&interval_option);
+        submenu.append(&interval_option);
     }
 
-    interval_item.set_submenu(Some(&interval_submenu));
+    submenu
+}
+
+/// Build the theme selection submenu
+fn build_theme_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
+    let current = display::current_theme_name();
+
+    for theme_name in theme::ThemeName::all() {
+        let label = if *theme_name == current {
+            format!("● {}", theme_name.as_str())
+        } else {
+            format!("  {}", theme_name.as_str())
+        };
+        let theme_option = gtk::MenuItem::with_label(&label);
+        let theme_to_set = *theme_name;
+        theme_option.connect_activate(move |_| {
+            display::set_theme(theme_to_set);
+            rebuild_menu_now();
+        });
+        submenu.append(&theme_option);
+    }
+
+    submenu
+}
+
+fn build_menu(state: &AppState) -> gtk::Menu {
+    let menu = gtk::Menu::new();
+
+    // Content section: usage data, error, or loading
+    if let Some(ref usage) = state.usage {
+        build_usage_sections(&menu, usage);
+    } else if let Some(ref error) = state.error {
+        let error_header = gtk::MenuItem::with_label(&display::format_section_header("ERROR"));
+        error_header.set_sensitive(false);
+        menu.append(&error_header);
+
+        let error_msg = if error.len() > 40 {
+            &error[..40]
+        } else {
+            error
+        };
+        let error_item =
+            gtk::MenuItem::with_label(&format!("{} {error_msg}", display::error_icon()));
+        error_item.set_sensitive(false);
+        menu.append(&error_item);
+    } else {
+        let loading_item = gtk::MenuItem::with_label(&format!(
+            "{} Loading usage data...",
+            display::loading_indicator()
+        ));
+        loading_item.set_sensitive(false);
+        menu.append(&loading_item);
+    }
+
+    // Separator before settings
+    menu.append(&gtk::SeparatorMenuItem::new());
+
+    // Options submenu
+    let options_item = gtk::MenuItem::with_label("Options");
+    options_item.set_submenu(Some(&build_options_submenu()));
+    menu.append(&options_item);
+
+    // Update Interval submenu
+    let interval_item = gtk::MenuItem::with_label("Update Interval");
+    interval_item.set_submenu(Some(&build_interval_submenu()));
     menu.append(&interval_item);
 
     // Theme submenu (if enabled)
     if display::show_theme_selector() {
         let theme_item = gtk::MenuItem::with_label("Theme");
-        let theme_submenu = gtk::Menu::new();
-
-        let current = display::current_theme_name();
-        for theme_name in theme::ThemeName::all() {
-            let label = if *theme_name == current {
-                format!("● {}", theme_name.as_str())
-            } else {
-                format!("  {}", theme_name.as_str())
-            };
-            let theme_option = gtk::MenuItem::with_label(&label);
-            let theme_to_set = *theme_name;
-            theme_option.connect_activate(move |_| {
-                display::set_theme(theme_to_set);
-                rebuild_menu_now();
-            });
-            theme_submenu.append(&theme_option);
-        }
-
-        theme_item.set_submenu(Some(&theme_submenu));
+        theme_item.set_submenu(Some(&build_theme_submenu()));
         menu.append(&theme_item);
     }
 
