@@ -1,6 +1,7 @@
 # cc-usage-tracker
 
-[![Build](https://github.com/georgii/cc-usage-tracker/actions/workflows/build.yml/badge.svg)](https://github.com/georgii/cc-usage-tracker/actions/workflows/build.yml)
+[![Build](https://github.com/0xGeorgii/cc-usage-tracker/actions/workflows/build.yml/badge.svg)](https://github.com/0xGeorgii/cc-usage-tracker/actions/workflows/build.yml) | 
+[![Release](https://github.com/0xGeorgii/cc-usage-tracker/actions/workflows/release.yml/badge.svg)](https://github.com/0xGeorgii/cc-usage-tracker/actions/workflows/release.yml)
 
 A Linux system tray application that displays your Claude Code usage statistics at a glance.
 
@@ -132,15 +133,84 @@ cargo doc --open
 
 ## How It Works
 
-The application fetches usage data by running the Claude CLI with the `/usage` command. Since the Claude CLI requires a terminal (PTY), it uses the `script` command for terminal emulation:
+The application fetches usage data by running the Claude CLI with the `/usage` command using direct PTY (pseudo-terminal) control via the `pty-process` crate.
 
-```bash
-script -q -c "timeout 8 sh -c \"echo '/usage' | claude\"" /dev/null
+### Architecture
+
+```mermaid
+flowchart LR
+    subgraph App["cc-usage-tracker"]
+        A[Rust + GTK]
+    end
+
+    subgraph PTY["PTY Layer"]
+        B[PTY Master<br/>async I/O]
+    end
+
+    subgraph CLI["Claude CLI"]
+        C[Node.js]
+    end
+
+    subgraph UI["System Tray"]
+        D[libappindicator]
+    end
+
+    A -->|spawn| B
+    B -->|/usage command| C
+    C -->|usage data| B
+    B -->|parsed response| A
+    A -->|update| D
 ```
+
+### Key Features
+
+- **Direct PTY control**: Uses `pty-process` crate for proper terminal emulation (Claude CLI requires a TTY)
+- **Character-by-character input**: Handles Claude CLI's autocomplete by sending keystrokes individually
+- **Three-level timeout strategy** (see diagram below)
+- **Retry mechanism**: Up to 2 retries for transient failures (network issues, slow startup)
+- **Process tree cleanup**: Kills entire process tree including grandchildren on completion
+- **Orphan prevention**: Uses `PR_SET_PDEATHSIG` and process group isolation
+
+### Timeout Strategy
+
+```mermaid
+sequenceDiagram
+    participant App as cc-usage-tracker
+    participant PTY as PTY Master
+    participant CLI as Claude CLI
+
+    App->>PTY: Create PTY
+    App->>CLI: Spawn process
+
+    Note over App: Wait 1.5s for startup
+
+    App->>PTY: Send "/usage" (char by char)
+
+    loop Read with timeout
+        PTY->>App: Read data (5s timeout)
+        alt Data received
+            App->>App: Reset timeout counter
+            App->>App: Check for complete data
+        else Timeout (no data)
+            App->>App: Increment timeout counter
+            alt 3 consecutive timeouts
+                App->>App: Give up
+            end
+        end
+    end
+
+    Note over App: Overall 30s limit
+
+    App->>CLI: Kill process tree
+    App->>App: Parse & display
+```
+
+### Data Extraction
 
 It parses the terminal output to extract:
 - Usage percentages (handles both `% used` and `%used` formats)
 - Reset times (converted to countdown format)
+- Supports "Current session", "Current week (all models)", and "Sonnet only" sections
 
 The `/usage` command is a local CLI command that queries the API directly without consuming any model tokens. The app polls every 60 seconds and updates the tray label and menu with fresh data.
 
@@ -152,6 +222,22 @@ The `/usage` command is a local CLI command that queries the API directly withou
 - Ensure you're logged in: `claude` should start without auth errors
 - Check logs: run `cc-usage-tracker` from terminal to see error messages
 
+### Timeout errors
+
+The app has a robust three-level timeout strategy, but issues can still occur:
+
+- **Per-read timeout (5s)**: If Claude CLI stops outputting data
+- **Overall timeout (30s)**: If the entire operation takes too long
+
+To debug:
+```bash
+# Run from terminal to see detailed logs
+cc-usage-tracker 2>&1 | grep -E '\[fetch\]|\[read\]'
+
+# Check if Claude CLI responds
+echo '/usage' | timeout 10 claude
+```
+
 ### Tray icon not visible
 
 - Ensure your desktop environment supports AppIndicator/system tray
@@ -161,6 +247,18 @@ The `/usage` command is a local CLI command that queries the API directly withou
 
 - The app polls every 60 seconds; wait for the next update
 - Check terminal output for timeout or parsing errors
+- The app retries up to 2 times on transient failures
+
+### Orphaned processes
+
+The app includes comprehensive process cleanup, but if issues occur:
+```bash
+# Check for orphaned claude processes
+ps aux | grep claude | grep -v grep
+
+# Manually clean up if needed (be careful not to kill your active sessions)
+pkill -f "claude.*usage"
+```
 
 ## Contributing
 
