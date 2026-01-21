@@ -1032,6 +1032,100 @@ fn parse_reset_time_line(line: &str) -> Option<chrono::DateTime<Utc>> {
     None
 }
 
+/// Send a simple "hi" message to Claude CLI to trigger timer start.
+///
+/// This function spawns the Claude CLI, sends a simple message, and exits.
+/// The purpose is to trigger the 5-hour usage window to start at a specific time.
+///
+/// Returns `Ok(())` on success, or an error message on failure.
+pub async fn send_timer_start_message() -> Result<(), String> {
+    eprintln!("[timer] Starting timer trigger...");
+    let start_time = std::time::Instant::now();
+
+    // Create PTY
+    let pty = Pty::new().map_err(|e| format!("Failed to create PTY: {e}"))?;
+    pty.resize(pty_process::Size::new(24, 80))
+        .map_err(|e| format!("Failed to resize PTY: {e}"))?;
+
+    let pts = pty
+        .pts()
+        .map_err(|e| format!("Failed to get PTY pts: {e}"))?;
+
+    // Build command with process group isolation
+    let mut cmd = pty_process::Command::new("claude");
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setpgid(0, 0);
+            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+            Ok(())
+        });
+    }
+
+    // Spawn child on PTY
+    let child = cmd
+        .spawn(&pts)
+        .map_err(|e| format!("Failed to spawn claude CLI: {e}"))?;
+
+    let pid = child.id().ok_or("Failed to get child PID")?.cast_signed();
+    eprintln!("[timer] Spawned claude CLI with PID {pid}");
+
+    // Create RAII guard for cleanup
+    let mut guard = ProcessGuard::new(pid, child);
+
+    // Split PTY into reader and writer
+    let (_reader, mut writer) = pty.into_split();
+
+    // Wait for Claude CLI to start up
+    eprintln!("[timer] Waiting for CLI startup...");
+    tokio::time::sleep(Duration::from_millis(BASE_STARTUP_DELAY_MS)).await;
+
+    // Type "hi" character by character
+    eprintln!("[timer] Sending 'hi' message...");
+    for c in b"hi" {
+        writer
+            .write_all(&[*c])
+            .await
+            .map_err(|e| format!("Failed to write to PTY: {e}"))?;
+        writer
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush PTY: {e}"))?;
+        tokio::time::sleep(Duration::from_millis(CHAR_DELAY_MS)).await;
+    }
+
+    // Send Enter
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    writer
+        .write_all(b"\r")
+        .await
+        .map_err(|e| format!("Failed to write Enter to PTY: {e}"))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| format!("Failed to flush PTY: {e}"))?;
+
+    // Wait for message to be processed by Claude
+    eprintln!("[timer] Waiting for message to be processed...");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Clean up process tree
+    eprintln!("[timer] Cleaning up...");
+    kill_process_tree(pid);
+
+    if let Some(mut child) = guard.take_child() {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = child.wait().await;
+    }
+
+    let elapsed = start_time.elapsed();
+    eprintln!(
+        "[timer] Timer start complete in {:.1}s",
+        elapsed.as_secs_f32()
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

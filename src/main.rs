@@ -239,6 +239,141 @@ fn build_theme_submenu() -> gtk::Menu {
     submenu
 }
 
+/// Schedule a timer to trigger at the specified time for a specific period
+fn schedule_timer_at(period: display::TimePeriod, target_time: chrono::DateTime<chrono::Local>) {
+    use chrono::Local;
+
+    // Store the scheduled time for this period
+    display::set_scheduled_timer(period, target_time);
+    rebuild_menu_now();
+
+    // Calculate delay until target time
+    let now = Local::now();
+    let delay = target_time.signed_duration_since(now);
+
+    if delay.num_seconds() <= 0 {
+        // Time is in the past or now - trigger immediately
+        trigger_timer_now(period);
+        return;
+    }
+
+    // Schedule using glib timeout
+    let delay_ms = u64::try_from(delay.num_milliseconds().max(0)).unwrap_or(u64::MAX);
+    glib::timeout_add_once(std::time::Duration::from_millis(delay_ms), move || {
+        trigger_timer_now(period);
+    });
+
+    eprintln!(
+        "[timer] {} scheduled for {} ({} seconds from now)",
+        period.name(),
+        target_time.format("%-I:%M %p"),
+        delay.num_seconds()
+    );
+}
+
+/// Trigger the timer start message now for a specific period
+fn trigger_timer_now(period: display::TimePeriod) {
+    // Spawn a thread to run the async code
+    std::thread::spawn(move || {
+        // Create a small tokio runtime for this operation
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create tokio runtime");
+
+        rt.block_on(async {
+            match cli_provider::send_timer_start_message().await {
+                Ok(()) => eprintln!("[timer] {} timer message sent successfully", period.name()),
+                Err(e) => eprintln!(
+                    "[timer] Failed to send {} timer message: {e}",
+                    period.name()
+                ),
+            }
+        });
+
+        // Clear the scheduled timer for this period and refresh menu on GTK main thread
+        glib::idle_add_once(move || {
+            display::clear_scheduled_timer(period);
+            rebuild_menu_now();
+        });
+    });
+}
+
+/// Build a time period submenu (e.g., Morning with hourly slots)
+fn build_time_period_submenu(period: display::TimePeriod) -> gtk::Menu {
+    use chrono::{Local, TimeZone};
+
+    let submenu = gtk::Menu::new();
+    let now = Local::now();
+    let (start_hour, end_hour) = period.hour_range();
+
+    for hour in start_hour..end_hour {
+        // Create target time for today at this hour
+        let target: Option<chrono::DateTime<Local>> = now
+            .date_naive()
+            .and_hms_opt(hour, 0, 0)
+            .and_then(|dt| Local.from_local_datetime(&dt).single());
+
+        let Some(mut target_time) = target else {
+            continue;
+        };
+
+        // If the time has passed today, schedule for tomorrow
+        if target_time <= now {
+            target_time += chrono::Duration::days(1);
+        }
+
+        // Format label (e.g., "8:00 AM" or "8:00 AM (tomorrow)")
+        let is_tomorrow = target_time.date_naive() != now.date_naive();
+        let label = if is_tomorrow {
+            format!("{} (tomorrow)", target_time.format("%-I:%M %p"))
+        } else {
+            target_time.format("%-I:%M %p").to_string()
+        };
+
+        let time_item = gtk::MenuItem::with_label(&label);
+        time_item.connect_activate(move |_| {
+            schedule_timer_at(period, target_time);
+        });
+        submenu.append(&time_item);
+    }
+
+    // Add cancel option if this period has a scheduled timer
+    if display::scheduled_timer(period).is_some() {
+        submenu.append(&gtk::SeparatorMenuItem::new());
+        let cancel_item = gtk::MenuItem::with_label("Cancel");
+        cancel_item.connect_activate(move |_| {
+            display::clear_scheduled_timer(period);
+            rebuild_menu_now();
+            eprintln!("[timer] {} timer cancelled", period.name());
+        });
+        submenu.append(&cancel_item);
+    }
+
+    submenu
+}
+
+/// Build the Start Timer submenu with Morning/Afternoon/Evening submenus
+fn build_timer_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
+
+    for &period in display::TimePeriod::all() {
+        // Show dot if timer is scheduled for this period
+        let has_timer = display::scheduled_timer(period).is_some();
+        let label = if has_timer {
+            format!("● {}", period.name())
+        } else {
+            format!("  {}", period.name())
+        };
+
+        let period_item = gtk::MenuItem::with_label(&label);
+        period_item.set_submenu(Some(&build_time_period_submenu(period)));
+        submenu.append(&period_item);
+    }
+
+    submenu
+}
+
 fn build_menu(state: &AppState) -> gtk::Menu {
     let menu = gtk::Menu::new();
 
@@ -268,8 +403,33 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         menu.append(&loading_item);
     }
 
+    // Show scheduled timer status if any are active
+    let scheduled = display::all_scheduled_timers();
+    if !scheduled.is_empty() {
+        menu.append(&gtk::SeparatorMenuItem::new());
+        for (period, time) in &scheduled {
+            let timer_status = gtk::MenuItem::with_label(&format!(
+                "⏰ {}: {}",
+                period.name(),
+                time.format("%-I:%M %p")
+            ));
+            timer_status.set_sensitive(false);
+            menu.append(&timer_status);
+        }
+    }
+
     // Separator before settings
     menu.append(&gtk::SeparatorMenuItem::new());
+
+    // Start Timer submenu
+    let timer_label = if display::has_any_scheduled_timer() {
+        "Start Timer ⏰"
+    } else {
+        "Start Timer"
+    };
+    let timer_item = gtk::MenuItem::with_label(timer_label);
+    timer_item.set_submenu(Some(&build_timer_submenu()));
+    menu.append(&timer_item);
 
     // Options submenu
     let options_item = gtk::MenuItem::with_label("Options");

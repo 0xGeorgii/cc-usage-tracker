@@ -19,6 +19,42 @@ static SHOW_THEME_SELECTOR: RwLock<bool> = RwLock::new(true);
 /// Update interval in seconds (default 5 minutes)
 static UPDATE_INTERVAL_SECS: RwLock<u64> = RwLock::new(300);
 
+/// Time periods for scheduling timers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TimePeriod {
+    Morning,   // 6 AM - 12 PM
+    Afternoon, // 12 PM - 6 PM
+    Evening,   // 6 PM - 12 AM
+}
+
+impl TimePeriod {
+    /// Get the hour range for this period (start inclusive, end exclusive)
+    pub fn hour_range(self) -> (u32, u32) {
+        match self {
+            Self::Morning => (6, 12),
+            Self::Afternoon => (12, 18),
+            Self::Evening => (18, 24),
+        }
+    }
+
+    /// Get the display name for this period
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Morning => "Morning",
+            Self::Afternoon => "Afternoon",
+            Self::Evening => "Evening",
+        }
+    }
+
+    /// All time periods
+    pub fn all() -> &'static [TimePeriod] {
+        &[Self::Morning, Self::Afternoon, Self::Evening]
+    }
+}
+
+/// Scheduled timers per time period (one per section)
+static SCHEDULED_TIMERS: RwLock<[Option<DateTime<Local>>; 3]> = RwLock::new([None, None, None]);
+
 /// Get the current theme configuration
 pub fn current_theme() -> Theme {
     CURRENT_THEME.read().unwrap().config()
@@ -75,6 +111,45 @@ pub fn update_interval_secs() -> u64 {
 /// Set the update interval in seconds
 pub fn set_update_interval_secs(secs: u64) {
     *UPDATE_INTERVAL_SECS.write().unwrap() = secs;
+}
+
+/// Get the scheduled timer for a specific period
+pub fn scheduled_timer(period: TimePeriod) -> Option<DateTime<Local>> {
+    let timers = SCHEDULED_TIMERS.read().unwrap();
+    timers[period as usize]
+}
+
+/// Set the scheduled timer for a specific period
+pub fn set_scheduled_timer(period: TimePeriod, time: DateTime<Local>) {
+    let mut timers = SCHEDULED_TIMERS.write().unwrap();
+    timers[period as usize] = Some(time);
+}
+
+/// Clear the scheduled timer for a specific period
+pub fn clear_scheduled_timer(period: TimePeriod) {
+    let mut timers = SCHEDULED_TIMERS.write().unwrap();
+    timers[period as usize] = None;
+}
+
+/// Check if any timer is scheduled
+pub fn has_any_scheduled_timer() -> bool {
+    let timers = SCHEDULED_TIMERS.read().unwrap();
+    timers.iter().any(Option::is_some)
+}
+
+/// Get all scheduled timers with their periods
+pub fn all_scheduled_timers() -> Vec<(TimePeriod, DateTime<Local>)> {
+    let timers = SCHEDULED_TIMERS.read().unwrap();
+    TimePeriod::all()
+        .iter()
+        .filter_map(|&period| timers[period as usize].map(|time| (period, time)))
+        .collect()
+}
+
+/// Format the scheduled timer for a period (e.g., "8:00 AM")
+#[allow(dead_code)] // May be useful for future features
+pub fn format_scheduled_timer(period: TimePeriod) -> Option<String> {
+    scheduled_timer(period).map(|t| t.format("%-I:%M %p").to_string())
 }
 
 /// Available update intervals (in seconds) with display labels
