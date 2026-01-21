@@ -1,0 +1,21 @@
+[package]
+name = "cc-usage-tracker"
+version = "0.1.0"
+edition = "2021"
+description = "Linux system tray application that displays Claude Code usage statistics"
+license = "MIT"
+repository = "https://github.com/georgii/cc-usage-tracker"
+keywords = ["claude", "usage", "tray", "linux", "gtk"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+async-trait = "0.1"
+libappindicator = "0.9"
+gtk = "0.18"
+glib = "0.20"
+regex-lite = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "process"] }
+dirs = "5.0"
