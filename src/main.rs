@@ -29,8 +29,12 @@ use cli_provider::{kill_all_children, ClaudeCliProvider};
 use gtk::prelude::*;
 use libappindicator::{AppIndicator, AppIndicatorStatus};
 use provider::UsageProvider;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+
+/// Track whether the session is locked to skip UI updates
+static SESSION_LOCKED: AtomicBool = AtomicBool::new(false);
 
 /// Application state shared between the polling task and UI thread.
 #[derive(Debug, Clone)]
@@ -65,8 +69,14 @@ fn create_provider() -> Box<dyn UsageProvider> {
 
 /// Helper to rebuild the menu immediately (used by option toggles)
 fn rebuild_menu_now() {
+    // Skip updates while session is locked to avoid GTK widget errors
+    if SESSION_LOCKED.load(Ordering::Relaxed) {
+        return;
+    }
+
     if let Some(wrapper) = UI_CONTEXT.get() {
         let ptr = wrapper.0;
+        // SAFETY: UI_CONTEXT is only accessed from GTK main thread
         unsafe {
             if let Some(state_lock) = STATE.get() {
                 let state_snapshot = state_lock.read().unwrap().clone();
@@ -471,20 +481,9 @@ static UI_CONTEXT: std::sync::OnceLock<UiContextPtr> = std::sync::OnceLock::new(
 /// Global app state for access from menu callbacks.
 static STATE: std::sync::OnceLock<Arc<RwLock<AppState>>> = std::sync::OnceLock::new();
 
-#[tokio::main]
-async fn main() {
-    // Initialize GTK first
-    gtk::init().expect("Failed to initialize GTK");
-
-    let provider = create_provider();
-    let state = Arc::new(RwLock::new(AppState::new()));
-
-    // Store state globally for menu callbacks
-    STATE.set(Arc::clone(&state)).ok();
-
-    // Create AppIndicator with a transparent icon (we only use the label)
-    // Get path to assets directory - try multiple locations
-    let icon_theme_path = std::env::current_exe()
+/// Find the assets directory path, checking multiple locations.
+fn find_assets_path() -> String {
+    std::env::current_exe()
         .ok()
         .and_then(|exe| {
             // Try next to the executable
@@ -502,31 +501,11 @@ async fn main() {
             None
         })
         // Fallback to compile-time path for development
-        .unwrap_or_else(|| format!("{}/assets", env!("CARGO_MANIFEST_DIR")));
+        .unwrap_or_else(|| format!("{}/assets", env!("CARGO_MANIFEST_DIR")))
+}
 
-    let mut indicator = AppIndicator::new("Claude Code Usage", "transparent");
-    indicator.set_icon_theme_path(&icon_theme_path);
-    indicator.set_label(&display::format_loading_label(), "");
-    indicator.set_status(AppIndicatorStatus::Active); // Set active AFTER label to avoid blank flash
-
-    // Build initial menu
-    let initial_state = state.read().unwrap();
-    let mut menu = build_menu(&initial_state);
-    drop(initial_state);
-    indicator.set_menu(&mut menu);
-
-    // Store UI context for access from idle callbacks
-    let ui_context = Box::new(UiContext {
-        indicator,
-        current_menu: Some(menu),
-    });
-    let ui_ptr = Box::into_raw(ui_context);
-    UI_CONTEXT.set(UiContextPtr(ui_ptr)).ok();
-
-    println!("cc-usage-tracker started");
-    println!("Look for the indicator in your system tray.");
-
-    // Spawn signal handler for graceful shutdown
+/// Spawn the signal handler for graceful shutdown.
+fn spawn_signal_handler() {
     tokio::spawn(async {
         use tokio::signal::unix::{signal, SignalKind};
 
@@ -542,21 +521,21 @@ async fn main() {
             }
         }
 
-        // Kill all tracked child processes to prevent orphans
         kill_all_children();
-
-        // Quit GTK main loop
-        glib::idle_add_once(|| {
-            gtk::main_quit();
-        });
+        glib::idle_add_once(gtk::main_quit);
     });
+}
 
-    // Clone for polling
-    let poll_state = Arc::clone(&state);
-
-    // Spawn polling task
+/// Spawn the polling task that fetches usage data periodically.
+fn spawn_polling_task(provider: Box<dyn UsageProvider>, state: Arc<RwLock<AppState>>) {
     tokio::spawn(async move {
         loop {
+            // Skip fetching entirely when session is locked - no one is there to see updates
+            if SESSION_LOCKED.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_secs(display::update_interval_secs())).await;
+                continue;
+            }
+
             let timestamp = Local::now().format("%H:%M:%S");
             eprintln!("[{timestamp}] Fetching usage data...");
 
@@ -568,36 +547,32 @@ async fn main() {
                         usage.five_hour.utilization,
                         usage.seven_day.utilization
                     );
-                    let mut s = poll_state.write().unwrap();
+                    let mut s = state.write().unwrap();
                     s.usage = Some(usage);
                     s.error = None;
-                    true // Update UI on success
+                    true
                 }
                 Err(e) => {
                     eprintln!("[{}] Error: {}", Local::now().format("%H:%M:%S"), e);
-                    let mut s = poll_state.write().unwrap();
+                    let mut s = state.write().unwrap();
                     s.error = Some(e.clone());
-                    // Only update UI if we already have data (to show error in menu)
-                    // Otherwise keep showing loading indicator
                     s.usage.is_some()
                 }
             };
 
-            // Only update UI if we have data or successfully fetched
             if should_update_ui {
-                let state_for_idle = Arc::clone(&poll_state);
+                let state_for_idle = Arc::clone(&state);
                 glib::idle_add_once(move || {
                     let state_snapshot = state_for_idle.read().unwrap().clone();
                     let label = state_snapshot.format_label();
                     let mut new_menu = build_menu(&state_snapshot);
 
-                    // SAFETY: UI_CONTEXT is only accessed from GTK main thread
                     if let Some(wrapper) = UI_CONTEXT.get() {
                         let ptr = wrapper.0;
+                        // SAFETY: UI_CONTEXT is only accessed from GTK main thread
                         unsafe {
                             (*ptr).indicator.set_label(&label, "");
                             (*ptr).indicator.set_menu(&mut new_menu);
-                            // Drop old menu, store new one (fixes memory leak)
                             (*ptr).current_menu = Some(new_menu);
                         }
                     }
@@ -607,7 +582,114 @@ async fn main() {
             tokio::time::sleep(Duration::from_secs(display::update_interval_secs())).await;
         }
     });
+}
 
-    // Run GTK main loop
+/// Watch for system sleep/wake and session lock/unlock events via D-Bus.
+///
+/// Listens to:
+/// - `org.freedesktop.login1.Manager.PrepareForSleep` - system sleep/wake
+/// - `org.freedesktop.login1.Session.Lock/Unlock` - screen lock/unlock
+async fn watch_system_events() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use futures_util::StreamExt;
+    use zbus::Connection;
+
+    let connection = Connection::system().await?;
+
+    // Match both Manager signals (sleep) and Session signals (lock)
+    let rule = zbus::match_rule::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.freedesktop.login1.Manager")?
+        .build();
+
+    let session_rule = zbus::match_rule::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.freedesktop.login1.Session")?
+        .build();
+
+    let mut stream = zbus::MessageStream::for_match_rule(rule, &connection, None).await?;
+    let mut session_stream =
+        zbus::MessageStream::for_match_rule(session_rule, &connection, None).await?;
+
+    eprintln!("[events] Watching for sleep/wake and lock/unlock events");
+
+    loop {
+        tokio::select! {
+            Some(msg) = stream.next() => {
+                if let Ok(msg) = msg {
+                    let member = msg.header().member().map(ToString::to_string);
+                    if member.as_deref() == Some("PrepareForSleep") {
+                        if let Ok((going_to_sleep,)) = msg.body().deserialize::<(bool,)>() {
+                            if going_to_sleep {
+                                eprintln!("[events] System going to sleep");
+                                SESSION_LOCKED.store(true, Ordering::Relaxed);
+                            } else {
+                                eprintln!("[events] System waking up, refreshing in 1s");
+                                SESSION_LOCKED.store(false, Ordering::Relaxed);
+                                glib::timeout_add_once(Duration::from_secs(1), rebuild_menu_now);
+                            }
+                        }
+                    }
+                }
+            }
+            Some(msg) = session_stream.next() => {
+                if let Ok(msg) = msg {
+                    let member = msg.header().member().map(ToString::to_string);
+                    match member.as_deref() {
+                        Some("Lock") => {
+                            eprintln!("[events] Session locked - pausing UI updates");
+                            SESSION_LOCKED.store(true, Ordering::Relaxed);
+                        }
+                        Some("Unlock") => {
+                            eprintln!("[events] Session unlocked, refreshing in 1s");
+                            SESSION_LOCKED.store(false, Ordering::Relaxed);
+                            glib::timeout_add_once(Duration::from_secs(1), rebuild_menu_now);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    gtk::init().expect("Failed to initialize GTK");
+
+    let provider = create_provider();
+    let state = Arc::new(RwLock::new(AppState::new()));
+    STATE.set(Arc::clone(&state)).ok();
+
+    // Create and configure the AppIndicator
+    let mut indicator = AppIndicator::new("Claude Code Usage", "transparent");
+    indicator.set_icon_theme_path(&find_assets_path());
+    indicator.set_label("...", "");
+    indicator.set_status(AppIndicatorStatus::Active);
+
+    // Build initial menu
+    let initial_state = state.read().unwrap();
+    let mut menu = build_menu(&initial_state);
+    drop(initial_state);
+    indicator.set_menu(&mut menu);
+
+    // Store UI context globally for access from callbacks
+    let ui_context = Box::new(UiContext {
+        indicator,
+        current_menu: Some(menu),
+    });
+    UI_CONTEXT.set(UiContextPtr(Box::into_raw(ui_context))).ok();
+
+    println!("cc-usage-tracker started");
+    println!("Look for the indicator in your system tray.");
+
+    // Spawn background tasks
+    spawn_signal_handler();
+    spawn_polling_task(provider, Arc::clone(&state));
+    tokio::spawn(async {
+        if let Err(e) = watch_system_events().await {
+            eprintln!("[events] Failed to watch for system events: {e}");
+        }
+    });
+
     gtk::main();
 }
