@@ -27,10 +27,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libappindicator3-dev
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          target: ${{ matrix.target }}
+      - name: Update Rust
+        run: |
+          rustup update ${{ matrix.target }}
+          rustup default ${{ matrix.target }}
+          rustup component add llvm-tools-preview
+          rustup component add clippy
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
