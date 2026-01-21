@@ -24,7 +24,7 @@ mod provider;
 
 use api::UsageResponse;
 use chrono::Local;
-use cli_provider::ClaudeCliProvider;
+use cli_provider::{kill_all_children, ClaudeCliProvider};
 use gtk::prelude::*;
 use libappindicator::{AppIndicator, AppIndicatorStatus};
 use provider::UsageProvider;
@@ -211,6 +211,31 @@ async fn main() {
 
     println!("cc-usage-tracker started");
     println!("Look for the indicator in your system tray.");
+
+    // Spawn signal handler for graceful shutdown
+    tokio::spawn(async {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigterm = signal(SignalKind::terminate()).expect("Failed to register SIGTERM");
+        let mut sigint = signal(SignalKind::interrupt()).expect("Failed to register SIGINT");
+
+        tokio::select! {
+            _ = sigterm.recv() => {
+                eprintln!("Received SIGTERM, shutting down...");
+            }
+            _ = sigint.recv() => {
+                eprintln!("Received SIGINT, shutting down...");
+            }
+        }
+
+        // Kill all tracked child processes to prevent orphans
+        kill_all_children();
+
+        // Quit GTK main loop
+        glib::idle_add_once(|| {
+            gtk::main_quit();
+        });
+    });
 
     // Clone for polling
     let poll_state = Arc::clone(&state);
