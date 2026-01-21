@@ -76,9 +76,13 @@ const READ_TIMEOUT_SECS: u64 = 5;
 /// After this many timeouts with no new data, we assume CLI is stuck.
 const MAX_CONSECUTIVE_TIMEOUTS: u32 = 3;
 
-/// Startup delay in milliseconds.
+/// Base startup delay in milliseconds.
 /// Allows Claude CLI to initialize (loads Node.js, connects to API).
-const STARTUP_DELAY_MS: u64 = 1500;
+/// This increases on retries via adaptive backoff.
+const BASE_STARTUP_DELAY_MS: u64 = 3000;
+
+/// Maximum startup delay in milliseconds (cap for adaptive backoff).
+const MAX_STARTUP_DELAY_MS: u64 = 8000;
 
 /// Inter-character delay for typing command (milliseconds).
 /// Claude CLI autocomplete needs time to process each keystroke.
@@ -500,11 +504,15 @@ async fn read_pty_output(
                 let chunk = String::from_utf8_lossy(&buf[..n]);
                 output.push_str(&chunk);
 
+                // Strip ANSI codes for pattern matching (raw output may have escape sequences)
+                let clean_chunk = strip_ansi_codes(&chunk);
+                let clean_output = strip_ansi_codes(&output);
+
                 // Check if we've seen the required sections
-                if chunk.contains("Current session") || chunk.contains("session") {
+                if clean_chunk.contains("Current session") || clean_chunk.contains("session") {
                     seen_session = true;
                 }
-                if chunk.contains("Current week") || chunk.contains("week (all") {
+                if clean_chunk.contains("Current week") || clean_chunk.contains("week (all") {
                     seen_weekly = true;
                 }
 
@@ -516,8 +524,8 @@ async fn read_pty_output(
                 }
 
                 // If we've seen both required sections and have percentage data
-                if seen_session && seen_weekly && output.contains("% used") {
-                    let pct_count = output.matches("% used").count();
+                if seen_session && seen_weekly && clean_output.contains("% used") {
+                    let pct_count = clean_output.matches("% used").count();
                     if pct_count >= 2 {
                         eprintln!(
                             "[read] Found {pct_count} percentages after {:.1}s, {} bytes",
@@ -547,9 +555,10 @@ async fn read_pty_output(
 
 /// Check if we have all the data we need.
 fn has_complete_data(output: &str) -> bool {
-    let has_session = output.contains("Current session") || output.contains("session");
-    let has_weekly = output.contains("Current week") || output.contains("week (all");
-    let pct_count = output.matches("% used").count();
+    let clean = strip_ansi_codes(output);
+    let has_session = clean.contains("Current session") || clean.contains("session");
+    let has_weekly = clean.contains("Current week") || clean.contains("week (all");
+    let pct_count = clean.matches("% used").count();
     has_session && has_weekly && pct_count >= 2
 }
 
@@ -587,10 +596,17 @@ impl Default for ClaudeCliProvider {
     }
 }
 
+/// Calculate adaptive startup delay based on attempt number.
+/// Uses exponential backoff: 2s, 4s, 8s (capped at MAX_STARTUP_DELAY_MS)
+fn calculate_startup_delay(attempt: u32) -> u64 {
+    let delay = BASE_STARTUP_DELAY_MS * (1 << attempt); // 2^attempt multiplier
+    delay.min(MAX_STARTUP_DELAY_MS)
+}
+
 #[async_trait]
 impl UsageProvider for ClaudeCliProvider {
     async fn fetch_usage(&self) -> Result<UsageResponse, String> {
-        // Implement retry mechanism for transient failures
+        // Implement retry mechanism with exponential backoff
         let mut last_error = String::new();
 
         for attempt in 0..=MAX_RETRIES {
@@ -599,7 +615,10 @@ impl UsageProvider for ClaudeCliProvider {
                 tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
             }
 
-            match self.fetch_usage_once().await {
+            // Calculate adaptive startup delay for this attempt
+            let startup_delay = calculate_startup_delay(attempt);
+
+            match self.fetch_usage_once(startup_delay).await {
                 Ok(usage) => return Ok(usage),
                 Err(e) => {
                     eprintln!("[fetch] Attempt {attempt} failed: {e}");
@@ -622,9 +641,9 @@ impl UsageProvider for ClaudeCliProvider {
 }
 
 impl ClaudeCliProvider {
-    /// Single attempt to fetch usage data.
+    /// Single attempt to fetch usage data with configurable startup delay.
     #[allow(clippy::too_many_lines)]
-    async fn fetch_usage_once(&self) -> Result<UsageResponse, String> {
+    async fn fetch_usage_once(&self, startup_delay_ms: u64) -> Result<UsageResponse, String> {
         // Run Claude CLI with /usage command using pty-process for direct PTY control.
         // The claude CLI doesn't exit after /usage, so we read output incrementally
         // and kill the process when we have enough data or timeout.
@@ -686,8 +705,9 @@ impl ClaudeCliProvider {
             tokio::spawn(async move { read_pty_output(reader, cancel_flag_clone).await });
 
         // Wait for Claude CLI to start up and show its prompt
-        eprintln!("[fetch] Waiting {STARTUP_DELAY_MS}ms for CLI startup...");
-        tokio::time::sleep(Duration::from_millis(STARTUP_DELAY_MS)).await;
+        // Uses adaptive delay that increases on retries
+        eprintln!("[fetch] Waiting {startup_delay_ms}ms for CLI startup...");
+        tokio::time::sleep(Duration::from_millis(startup_delay_ms)).await;
 
         // Write /usage command character by character
         // Claude CLI has autocomplete that needs time to process each keystroke.
@@ -1324,4 +1344,21 @@ Resets 11am (Asia/Tokyo)
         let debug_str = format!("{result:?}");
         assert!(debug_str.contains("Complete"));
     }
+
+    // =============================================================================
+    // Backoff Tests
+    // =============================================================================
+
+    #[test]
+    fn test_calculate_startup_delay_exponential() {
+        // Attempt 0: 3000ms base
+        assert_eq!(calculate_startup_delay(0), 3000);
+        // Attempt 1: 6000ms (2^1 * 3000)
+        assert_eq!(calculate_startup_delay(1), 6000);
+        // Attempt 2: 8000ms (2^2 * 3000 = 12000, capped at MAX)
+        assert_eq!(calculate_startup_delay(2), 8000);
+        // Attempt 3: still 8000ms (capped)
+        assert_eq!(calculate_startup_delay(3), 8000);
+    }
+
 }

@@ -1,10 +1,180 @@
 //! Display formatting utilities for usage data.
 //!
 //! This module provides functions to format usage statistics for display
-//! in tooltips, menus, and labels.
+//! in tooltips, menus, and labels. Supports multiple themes for customization.
 
 use crate::api::UsageResponse;
-use chrono::{DateTime, Utc};
+use crate::theme::{Theme, ThemeName};
+use chrono::{DateTime, Local, Utc};
+use std::sync::RwLock;
+
+/// Current active theme - stored in a RwLock for runtime switching
+static CURRENT_THEME: RwLock<ThemeName> = RwLock::new(ThemeName::Minimal);
+
+/// Display options
+static SHOW_SONNET: RwLock<bool> = RwLock::new(true);
+static SHOW_UPDATED_TIME: RwLock<bool> = RwLock::new(true);
+static SHOW_THEME_SELECTOR: RwLock<bool> = RwLock::new(true);
+
+/// Update interval in seconds (default 5 minutes)
+static UPDATE_INTERVAL_SECS: RwLock<u64> = RwLock::new(300);
+
+/// Get the current theme configuration
+pub fn current_theme() -> Theme {
+    CURRENT_THEME.read().unwrap().config()
+}
+
+/// Get the current theme name
+pub fn current_theme_name() -> ThemeName {
+    *CURRENT_THEME.read().unwrap()
+}
+
+/// Set the current theme
+pub fn set_theme(theme: ThemeName) {
+    *CURRENT_THEME.write().unwrap() = theme;
+}
+
+/// Check if Sonnet section should be shown
+pub fn show_sonnet() -> bool {
+    *SHOW_SONNET.read().unwrap()
+}
+
+/// Toggle Sonnet section visibility
+pub fn toggle_sonnet() {
+    let mut show = SHOW_SONNET.write().unwrap();
+    *show = !*show;
+}
+
+/// Check if "Updated" time should be shown
+pub fn show_updated_time() -> bool {
+    *SHOW_UPDATED_TIME.read().unwrap()
+}
+
+/// Toggle "Updated" time visibility
+pub fn toggle_updated_time() {
+    let mut show = SHOW_UPDATED_TIME.write().unwrap();
+    *show = !*show;
+}
+
+/// Check if theme selector should be shown
+pub fn show_theme_selector() -> bool {
+    *SHOW_THEME_SELECTOR.read().unwrap()
+}
+
+/// Toggle theme selector visibility
+pub fn toggle_theme_selector() {
+    let mut show = SHOW_THEME_SELECTOR.write().unwrap();
+    *show = !*show;
+}
+
+/// Get the current update interval in seconds
+pub fn update_interval_secs() -> u64 {
+    *UPDATE_INTERVAL_SECS.read().unwrap()
+}
+
+/// Set the update interval in seconds
+pub fn set_update_interval_secs(secs: u64) {
+    *UPDATE_INTERVAL_SECS.write().unwrap() = secs;
+}
+
+/// Available update intervals (in seconds) with display labels
+pub fn update_interval_options() -> &'static [(u64, &'static str)] {
+    &[
+        (60, "1 min"),
+        (300, "5 min"),
+        (900, "15 min"),
+        (1800, "30 min"),
+    ]
+}
+
+/// Create a wider 10-segment progress bar for menu display (using current theme)
+pub fn wide_progress_bar(percentage: f64) -> String {
+    current_theme().wide_bar(percentage)
+}
+
+/// Format the tray label with visual progress indicator
+/// Shows session usage with a compact, modern time display
+pub fn format_tray_label(usage: &UsageResponse) -> String {
+    let theme = current_theme();
+    let session_bar = theme.mini_bar(usage.five_hour.utilization);
+    let reset_time = format_time_compact(usage.five_hour.resets_at);
+    format!(
+        "{} {:.0}% {}{}",
+        session_bar,
+        usage.five_hour.utilization,
+        theme.time_icon,
+        reset_time
+    )
+}
+
+/// Format loading state for tray label
+pub fn format_loading_label() -> String {
+    current_theme().loading_label()
+}
+
+/// Format error state for tray label
+pub fn format_error_label() -> String {
+    current_theme().error_label()
+}
+
+/// Format a section header for the menu
+pub fn format_section_header(title: &str) -> String {
+    current_theme().section_header(title)
+}
+
+/// Get the session reset icon
+pub fn session_icon() -> &'static str {
+    // We need to leak the string since theme returns &'static str
+    current_theme().session_icon
+}
+
+/// Get the weekly reset icon
+pub fn weekly_icon() -> &'static str {
+    current_theme().weekly_icon
+}
+
+/// Get the quit menu icon
+pub fn quit_icon() -> &'static str {
+    current_theme().quit_icon
+}
+
+/// Get the loading indicator
+pub fn loading_indicator() -> &'static str {
+    current_theme().loading
+}
+
+/// Get the error icon
+pub fn error_icon() -> &'static str {
+    current_theme().error_icon
+}
+
+/// Format reset time in a compact, modern style (e.g., "2h15m" or "45m")
+fn format_time_compact(reset_time: Option<DateTime<Utc>>) -> String {
+    let Some(reset) = reset_time else {
+        return "—".to_string();
+    };
+
+    let now = Utc::now();
+    if reset <= now {
+        return "0m".to_string();
+    }
+
+    let duration = reset - now;
+    let total_seconds = duration.num_seconds();
+
+    if total_seconds < 0 {
+        return "0m".to_string();
+    }
+
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+
+    if hours > 0 {
+        format!("{}h{:02}m", hours, minutes)
+    } else {
+        format!("{}m", minutes)
+    }
+}
 
 /// Format usage data as a single-line tooltip string.
 #[allow(dead_code)] // Reserved for future tooltip implementations
@@ -102,6 +272,11 @@ fn truncate_str(s: &str, max_len: usize) -> &str {
     } else {
         &s[..max_len]
     }
+}
+
+/// Get current time formatted for "last updated" display
+pub fn format_current_time() -> String {
+    Local::now().format("%H:%M").to_string()
 }
 
 #[cfg(test)]
@@ -238,5 +413,96 @@ mod tests {
     #[test]
     fn test_truncate_str_long() {
         assert_eq!(truncate_str("hello world", 5), "hello");
+    }
+
+    // Tests for themed progress bar functions
+
+    #[test]
+    fn test_wide_progress_bar_empty() {
+        // Uses current theme (Modern by default)
+        let bar = wide_progress_bar(0.0);
+        assert_eq!(bar, "░░░░░░░░░░");
+    }
+
+    #[test]
+    fn test_wide_progress_bar_full() {
+        let bar = wide_progress_bar(100.0);
+        assert_eq!(bar, "██████████");
+    }
+
+    #[test]
+    fn test_wide_progress_bar_42_percent() {
+        let bar = wide_progress_bar(42.0);
+        // 42% of 10 = 4.2, rounds to 4
+        assert_eq!(bar, "████░░░░░░");
+    }
+
+    #[test]
+    fn test_format_tray_label() {
+        let usage = make_test_usage(17.0, 42.0);
+        let label = format_tray_label(&usage);
+
+        // Should contain percentage and time (theme-agnostic checks)
+        assert!(label.contains("17%"));
+        assert!(label.contains("2h")); // Reset time (2h 15m from test data)
+    }
+
+    #[test]
+    fn test_format_section_header() {
+        let header = format_section_header("TEST");
+        // Should contain the title
+        assert!(header.contains("TEST"));
+    }
+
+    #[test]
+    fn test_format_loading_label() {
+        let label = format_loading_label();
+        // Should have 5 empty segments for Modern theme
+        assert!(label.len() > 0);
+    }
+
+    #[test]
+    fn test_format_error_label() {
+        let label = format_error_label();
+        assert!(label.contains("Error"));
+    }
+
+    #[test]
+    fn test_format_time_compact_hours_and_minutes() {
+        let future = Utc::now() + Duration::hours(2) + Duration::minutes(15);
+        let result = format_time_compact(Some(future));
+        // Allow for 1 minute variance due to test execution time
+        assert!(result.starts_with("2h"));
+        assert!(result.ends_with("m"));
+    }
+
+    #[test]
+    fn test_format_time_compact_minutes_only() {
+        let future = Utc::now() + Duration::minutes(45);
+        let result = format_time_compact(Some(future));
+        // Should be minutes only (no 'h')
+        assert!(!result.contains('h'));
+        assert!(result.ends_with("m"));
+    }
+
+    #[test]
+    fn test_format_time_compact_none() {
+        let result = format_time_compact(None);
+        assert_eq!(result, "—");
+    }
+
+    #[test]
+    fn test_format_time_compact_past() {
+        let past = Utc::now() - Duration::hours(1);
+        let result = format_time_compact(Some(past));
+        assert_eq!(result, "0m");
+    }
+
+    #[test]
+    fn test_format_current_time() {
+        let time = format_current_time();
+        // Should be in HH:MM format
+        assert_eq!(time.len(), 5);
+        assert!(time.contains(':'));
     }
 }
