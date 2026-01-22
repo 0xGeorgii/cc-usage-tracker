@@ -7,12 +7,14 @@ A Linux system tray application that displays your Claude Code usage statistics 
 
 ## Features
 
-- **Real-time usage display** in system tray: `XX% (Xh Xm)`
+- **Real-time usage display** in system tray with visual progress bar
 - **Session usage** (5-hour window) with reset countdown
 - **Weekly usage** (7-day) across all models
-- **Sonnet-specific usage** tracking (when available)
-- **Dropdown menu** with detailed statistics
-- Automatic polling every 60 seconds
+- **Sonnet-specific usage** tracking (optional, toggleable)
+- **Timer scheduling** - schedule reminders for Morning, Afternoon, or Evening
+- **8 visual themes** - Minimal, Blocks, Soft, Lines, Sharp, Neon (default), Modern, Contemporary
+- **Configurable update intervals** - 1, 5, 15, or 30 minutes
+- **Smart system integration** - pauses during sleep/screen lock via D-Bus
 - Lightweight and unobtrusive
 
 ## Requirements
@@ -89,11 +91,53 @@ The indicator will appear in your system tray showing your current usage percent
 
 ### Tray Display
 
-- **Label format:** `XX% (Xh Xm)` - Current session usage and time until reset
-- **Click** the indicator to see detailed statistics:
-  - Session (5h): XX% used, resets in Xh Xm
-  - Weekly (7d): XX% used, resets in Xd Xh
-  - Sonnet (7d): XX% used (if available)
+- **Label format:** `▮▮▯▯▯ 40% ⧗2h15m` - Visual progress bar, percentage, and reset time
+- **Click** the indicator to open the menu:
+
+```
+╔═ SESSION ═╗ 40% · Resets in 2h 15m
+▓▓▓▓░░░░░░
+╔═ WEEKLY ═╗ 25% · Resets in 3d 4h
+▓▓▓░░░░░░░
+╔═ SONNET ═╗ 10% · 7-day window
+▓░░░░░░░░░
+Updated 14:30
+────────────────────
+⏰ Scheduled: 8:00 AM
+Schedule Timer
+────────────────────
+Settings
+────────────────────
+▪ Quit
+```
+
+### Settings Menu
+
+- **Display** - Toggle Sonnet section and "Updated" timestamp
+- **Update Interval** - Choose polling frequency (1/5/15/30 min)
+- **Theme** - Select from 8 visual themes
+
+### Timer Scheduling
+
+Schedule a reminder to start working at a specific time:
+- **Morning** (6 AM - 12 PM)
+- **Afternoon** (12 PM - 6 PM)
+- **Evening** (6 PM - 12 AM)
+
+When the scheduled time arrives, the app sends a "start timer" message to Claude CLI.
+
+### Themes
+
+| Theme | Style | Example |
+|-------|-------|---------|
+| Minimal | ASCII | `==··· 40% ~2h` |
+| Blocks | Bold | `██░░░ 40% ▸2h` |
+| Soft | Circles | `◉◉○○○ 40% ⏲2h` |
+| Lines | Box-drawing | `━━┄┄┄ 40% ›2h` |
+| Sharp | Diamonds | `◆◆◇◇◇ 40% »2h` |
+| **Neon** (default) | High contrast | `▮▮▯▯▯ 40% ⧗2h` |
+| Modern | Sleek | `▰▰▱▱▱ 40% ◷2h` |
+| Contemporary | Clean | `▪▪▫▫▫ 40% →2h` |
 
 ### Autostart
 
@@ -170,6 +214,7 @@ flowchart LR
 - **Retry mechanism**: Up to 2 retries for transient failures (network issues, slow startup)
 - **Process tree cleanup**: Kills entire process tree including grandchildren on completion
 - **Orphan prevention**: Uses `PR_SET_PDEATHSIG` and process group isolation
+- **System event handling**: Monitors D-Bus for sleep/wake and screen lock/unlock events to pause polling
 
 ### Timeout Strategy
 
@@ -212,7 +257,7 @@ It parses the terminal output to extract:
 - Reset times (converted to countdown format)
 - Supports "Current session", "Current week (all models)", and "Sonnet only" sections
 
-The `/usage` command is a local CLI command that queries the API directly without consuming any model tokens. The app polls every 60 seconds and updates the tray label and menu with fresh data.
+The `/usage` command is a local CLI command that queries the API directly without consuming any model tokens. The app polls at a configurable interval (default: 5 minutes) and updates the tray label and menu with fresh data.
 
 ## Troubleshooting
 
@@ -245,9 +290,10 @@ echo '/usage' | timeout 10 claude
 
 ### Usage not updating
 
-- The app polls every 60 seconds; wait for the next update
+- The app polls at your configured interval (default: 5 minutes); wait for the next update
 - Check terminal output for timeout or parsing errors
 - The app retries up to 2 times on transient failures
+- If screen is locked, polling is paused until unlock
 
 ### Orphaned processes
 
