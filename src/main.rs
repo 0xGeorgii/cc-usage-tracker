@@ -149,14 +149,9 @@ fn build_usage_sections(menu: &gtk::Menu, usage: &api::UsageResponse) {
     }
 }
 
-/// Build the consolidated Settings submenu
-fn build_settings_submenu() -> gtk::Menu {
+/// Build the Display settings submenu
+fn build_display_submenu() -> gtk::Menu {
     let submenu = gtk::Menu::new();
-
-    // === DISPLAY section ===
-    let display_header = gtk::MenuItem::with_label("[ DISPLAY ]");
-    display_header.set_sensitive(false);
-    submenu.append(&display_header);
 
     let sonnet_label = if display::show_sonnet() {
         "● Show Sonnet"
@@ -182,13 +177,14 @@ fn build_settings_submenu() -> gtk::Menu {
     });
     submenu.append(&updated_toggle);
 
-    // === UPDATE INTERVAL section ===
-    submenu.append(&gtk::SeparatorMenuItem::new());
-    let interval_header = gtk::MenuItem::with_label("[ UPDATE INTERVAL ]");
-    interval_header.set_sensitive(false);
-    submenu.append(&interval_header);
+    submenu
+}
 
+/// Build the Update Interval settings submenu
+fn build_interval_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
     let current_interval = display::update_interval_secs();
+
     for (secs, label) in display::update_interval_options() {
         let item_label = if *secs == current_interval {
             format!("● {label}")
@@ -204,13 +200,14 @@ fn build_settings_submenu() -> gtk::Menu {
         submenu.append(&interval_option);
     }
 
-    // === THEME section ===
-    submenu.append(&gtk::SeparatorMenuItem::new());
-    let theme_header = gtk::MenuItem::with_label("[ THEME ]");
-    theme_header.set_sensitive(false);
-    submenu.append(&theme_header);
+    submenu
+}
 
+/// Build the Theme settings submenu
+fn build_theme_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
     let current = display::current_theme_name();
+
     for theme_name in theme::ThemeName::all() {
         let label = if *theme_name == current {
             format!("● {}", theme_name.as_str())
@@ -225,6 +222,38 @@ fn build_settings_submenu() -> gtk::Menu {
         });
         submenu.append(&theme_option);
     }
+
+    submenu
+}
+
+/// Build the consolidated Settings submenu
+fn build_settings_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
+
+    // Display submenu with inline status
+    let display_count = [display::show_sonnet(), display::show_updated_time()]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+    let display_item = gtk::MenuItem::with_label(&format!("Display: {display_count} on"));
+    display_item.set_submenu(Some(&build_display_submenu()));
+    submenu.append(&display_item);
+
+    // Update Interval submenu with inline current value
+    let current_interval = display::update_interval_secs();
+    let interval_label = display::update_interval_options()
+        .iter()
+        .find(|(secs, _)| *secs == current_interval)
+        .map_or("1 min", |(_, label)| label);
+    let interval_item = gtk::MenuItem::with_label(&format!("Update: {interval_label}"));
+    interval_item.set_submenu(Some(&build_interval_submenu()));
+    submenu.append(&interval_item);
+
+    // Theme submenu with inline current theme
+    let current_theme = display::current_theme_name();
+    let theme_item = gtk::MenuItem::with_label(&format!("Theme: {}", current_theme.as_str()));
+    theme_item.set_submenu(Some(&build_theme_submenu()));
+    submenu.append(&theme_item);
 
     submenu
 }

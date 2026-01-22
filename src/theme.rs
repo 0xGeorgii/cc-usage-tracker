@@ -20,6 +20,10 @@ pub enum ThemeName {
     /// Vibrant dark-friendly style: ▮▮▯▯▯ 40% ⧗2h
     #[default]
     Neon,
+    /// Sleek Unicode style: ▰▰▱▱▱ 40% ◷2h
+    Modern,
+    /// Clean minimal squares: ▪▪▫▫▫ 40% →2h
+    Contemporary,
 }
 
 /// Theme configuration defining all visual elements
@@ -179,6 +183,44 @@ impl ThemeName {
                 error_icon: "⬢",
                 loading_pct: "░░%",
             },
+            // Modern: Sleek Unicode parallelograms with clock icon
+            Self::Modern => Theme {
+                bar_full: "▰",
+                bar_empty: "▱",
+                bar_segments: 5,
+                time_icon: "◷",
+                menu_bar_full: "█",
+                menu_bar_empty: "░",
+                menu_bar_segments: 10,
+                session_icon: "⏱",
+                weekly_icon: "📅",
+                header_left: "━━ ",
+                header_right: " ━━",
+                header_fill: "━",
+                quit_icon: "✕",
+                loading: "⏳",
+                error_icon: "⚠",
+                loading_pct: "··%",
+            },
+            // Contemporary: Clean minimal squares
+            Self::Contemporary => Theme {
+                bar_full: "▪",
+                bar_empty: "▫",
+                bar_segments: 5,
+                time_icon: "→",
+                menu_bar_full: "■",
+                menu_bar_empty: "□",
+                menu_bar_segments: 10,
+                session_icon: "→",
+                weekly_icon: "⇒",
+                header_left: "[ ",
+                header_right: " ]",
+                header_fill: "·",
+                quit_icon: "×",
+                loading: "·",
+                error_icon: "✕",
+                loading_pct: "··%",
+            },
         }
     }
 
@@ -192,6 +234,8 @@ impl ThemeName {
             Self::Lines,
             Self::Sharp,
             Self::Neon,
+            Self::Modern,
+            Self::Contemporary,
         ]
     }
 
@@ -205,6 +249,8 @@ impl ThemeName {
             Self::Lines => "lines",
             Self::Sharp => "sharp",
             Self::Neon => "neon",
+            Self::Modern => "modern",
+            Self::Contemporary => "contemporary",
         }
     }
 
@@ -218,6 +264,8 @@ impl ThemeName {
             "lines" => Some(Self::Lines),
             "sharp" => Some(Self::Sharp),
             "neon" => Some(Self::Neon),
+            "modern" => Some(Self::Modern),
+            "contemporary" => Some(Self::Contemporary),
             _ => None,
         }
     }
@@ -553,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_all_themes_count() {
-        assert_eq!(ThemeName::all().len(), 6);
+        assert_eq!(ThemeName::all().len(), 8);
     }
 
     #[test]
