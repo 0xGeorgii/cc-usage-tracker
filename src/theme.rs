@@ -7,17 +7,23 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[allow(dead_code)]
 pub enum ThemeName {
-    /// Modern Unicode style: ▰▱▱▱▱ 17% ◷2h15m
-    #[default]
-    Modern,
-    /// Minimal text style: [##---] 17% ~2h15m
+    /// Minimal ASCII style: ==··· 40% ~2h
     Minimal,
-    /// Retro ASCII style: [####------] 17% (2h15m)
-    Retro,
-    /// Block characters: ██░░░ 17% ⏱2h15m
+    /// Bold industrial blocks: ██░░░ 40% ▸2h
     Blocks,
-    /// Dots style: ●●○○○ 17% ↻2h15m
-    Dots,
+    /// Friendly rounded circles: ◉◉○○○ 40% ⏲2h
+    Soft,
+    /// Precise box-drawing lines: ━━┄┄┄ 40% ›2h
+    Lines,
+    /// Technical angular diamonds: ◆◆◇◇◇ 40% »2h
+    Sharp,
+    /// Vibrant dark-friendly style: ▮▮▯▯▯ 40% ⧗2h
+    #[default]
+    Neon,
+    /// Sleek Unicode style: ▰▰▱▱▱ 40% ◷2h
+    Modern,
+    /// Clean minimal squares: ▪▪▫▫▫ 40% →2h
+    Contemporary,
 }
 
 /// Theme configuration defining all visual elements
@@ -60,8 +66,124 @@ pub struct Theme {
 
 impl ThemeName {
     /// Get the theme configuration for this theme name
+    #[allow(clippy::too_many_lines)]
     pub fn config(self) -> Theme {
         match self {
+            // Minimal: Pure ASCII, maximum compatibility, professional
+            Self::Minimal => Theme {
+                bar_full: "=",
+                bar_empty: "·",
+                bar_segments: 5,
+                time_icon: "~",
+                menu_bar_full: "=",
+                menu_bar_empty: "·",
+                menu_bar_segments: 10,
+                session_icon: ">",
+                weekly_icon: ">>",
+                header_left: "[ ",
+                header_right: " ]",
+                header_fill: "-",
+                quit_icon: "x",
+                loading: "...",
+                error_icon: "!",
+                loading_pct: "--%",
+            },
+            // Blocks: Bold industrial, maximum contrast
+            Self::Blocks => Theme {
+                bar_full: "█",
+                bar_empty: "░",
+                bar_segments: 5,
+                time_icon: "▸",
+                menu_bar_full: "█",
+                menu_bar_empty: "░",
+                menu_bar_segments: 10,
+                session_icon: "▸",
+                weekly_icon: "▹",
+                header_left: "▌ ",
+                header_right: " ▐",
+                header_fill: "─",
+                quit_icon: "■",
+                loading: "▒",
+                error_icon: "▲",
+                loading_pct: "░░%",
+            },
+            // Soft: Friendly, approachable, organic circles
+            Self::Soft => Theme {
+                bar_full: "◉",
+                bar_empty: "○",
+                bar_segments: 5,
+                time_icon: "⏲",
+                menu_bar_full: "●",
+                menu_bar_empty: "○",
+                menu_bar_segments: 10,
+                session_icon: "⟳",
+                weekly_icon: "⟲",
+                header_left: "╭─ ",
+                header_right: " ─╮",
+                header_fill: "─",
+                quit_icon: "○",
+                loading: "◌",
+                error_icon: "⊗",
+                loading_pct: "○○%",
+            },
+            // Lines: Geometric precision, box-drawing purity
+            Self::Lines => Theme {
+                bar_full: "━",
+                bar_empty: "┄",
+                bar_segments: 5,
+                time_icon: "›",
+                menu_bar_full: "━",
+                menu_bar_empty: "┄",
+                menu_bar_segments: 10,
+                session_icon: "├",
+                weekly_icon: "╞",
+                header_left: "┌─ ",
+                header_right: " ─┐",
+                header_fill: "─",
+                quit_icon: "┘",
+                loading: "┄",
+                error_icon: "╳",
+                loading_pct: "┄┄%",
+            },
+            // Sharp: Technical, angular, power-user aesthetic
+            Self::Sharp => Theme {
+                bar_full: "◆",
+                bar_empty: "◇",
+                bar_segments: 5,
+                time_icon: "»",
+                menu_bar_full: "▰",
+                menu_bar_empty: "▱",
+                menu_bar_segments: 10,
+                session_icon: "►",
+                weekly_icon: "▻",
+                header_left: "◄ ",
+                header_right: " ►",
+                header_fill: "═",
+                quit_icon: "◆",
+                loading: "◇",
+                error_icon: "◈",
+                loading_pct: "◇◇%",
+            },
+            // Neon: High contrast, optimized for dark themes
+            Self::Neon => Theme {
+                bar_full: "▮",
+                bar_empty: "▯",
+                bar_segments: 5,
+                time_icon: "⧗",
+                menu_bar_full: "▓",
+                menu_bar_empty: "░",
+                menu_bar_segments: 10,
+                session_icon: "◈",
+                weekly_icon: "◆",
+                header_left: "╔═ ",
+                header_right: " ═╗",
+                header_fill: "═",
+                quit_icon: "▪",
+                loading: "▫",
+                error_icon: "⬢",
+                loading_pct: "░░%",
+            },
+            // Modern: Sleek Unicode parallelograms with clock icon
             Self::Modern => Theme {
                 bar_full: "▰",
                 bar_empty: "▱",
@@ -72,85 +194,32 @@ impl ThemeName {
                 menu_bar_segments: 10,
                 session_icon: "⏱",
                 weekly_icon: "📅",
-                header_left: "━━━━━━ ",
-                header_right: " ━━━━━━",
+                header_left: "━━ ",
+                header_right: " ━━",
                 header_fill: "━",
                 quit_icon: "✕",
                 loading: "⏳",
                 error_icon: "⚠",
                 loading_pct: "··%",
             },
-            Self::Minimal => Theme {
-                bar_full: "#",
-                bar_empty: "-",
+            // Contemporary: Clean minimal squares
+            Self::Contemporary => Theme {
+                bar_full: "▪",
+                bar_empty: "▫",
                 bar_segments: 5,
-                time_icon: "~",
-                menu_bar_full: "#",
-                menu_bar_empty: "-",
+                time_icon: "→",
+                menu_bar_full: "■",
+                menu_bar_empty: "□",
                 menu_bar_segments: 10,
-                session_icon: "",
-                weekly_icon: "",
+                session_icon: "→",
+                weekly_icon: "⇒",
                 header_left: "[ ",
                 header_right: " ]",
-                header_fill: "-",
-                quit_icon: "",
-                loading: "",
-                error_icon: "!",
-                loading_pct: "--%",
-            },
-            Self::Retro => Theme {
-                bar_full: "=",
-                bar_empty: ".",
-                bar_segments: 5,
-                time_icon: "@",
-                menu_bar_full: "#",
-                menu_bar_empty: ".",
-                menu_bar_segments: 10,
-                session_icon: ">>",
-                weekly_icon: ">>",
-                header_left: "<<< ",
-                header_right: " >>>",
-                header_fill: "=",
-                quit_icon: "[X]",
-                loading: "...",
-                error_icon: "[!]",
-                loading_pct: "??%",
-            },
-            Self::Blocks => Theme {
-                bar_full: "█",
-                bar_empty: "░",
-                bar_segments: 5,
-                time_icon: "⏱",
-                menu_bar_full: "█",
-                menu_bar_empty: "░",
-                menu_bar_segments: 10,
-                session_icon: "⏱",
-                weekly_icon: "📆",
-                header_left: "▐ ",
-                header_right: " ▌",
-                header_fill: "─",
-                quit_icon: "■",
-                loading: "◌",
-                error_icon: "✖",
-                loading_pct: "░░%",
-            },
-            Self::Dots => Theme {
-                bar_full: "●",
-                bar_empty: "○",
-                bar_segments: 5,
-                time_icon: "↻",
-                menu_bar_full: "●",
-                menu_bar_empty: "○",
-                menu_bar_segments: 10,
-                session_icon: "◐",
-                weekly_icon: "◑",
-                header_left: "• ",
-                header_right: " •",
                 header_fill: "·",
                 quit_icon: "×",
-                loading: "◔",
-                error_icon: "⊘",
-                loading_pct: "○○%",
+                loading: "·",
+                error_icon: "✕",
+                loading_pct: "··%",
             },
         }
     }
@@ -159,11 +228,14 @@ impl ThemeName {
     #[allow(dead_code)]
     pub fn all() -> &'static [ThemeName] {
         &[
-            Self::Modern,
             Self::Minimal,
-            Self::Retro,
             Self::Blocks,
-            Self::Dots,
+            Self::Soft,
+            Self::Lines,
+            Self::Sharp,
+            Self::Neon,
+            Self::Modern,
+            Self::Contemporary,
         ]
     }
 
@@ -171,11 +243,14 @@ impl ThemeName {
     #[allow(dead_code)]
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Modern => "modern",
             Self::Minimal => "minimal",
-            Self::Retro => "retro",
             Self::Blocks => "blocks",
-            Self::Dots => "dots",
+            Self::Soft => "soft",
+            Self::Lines => "lines",
+            Self::Sharp => "sharp",
+            Self::Neon => "neon",
+            Self::Modern => "modern",
+            Self::Contemporary => "contemporary",
         }
     }
 
@@ -183,11 +258,14 @@ impl ThemeName {
     #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "modern" => Some(Self::Modern),
             "minimal" => Some(Self::Minimal),
-            "retro" => Some(Self::Retro),
             "blocks" => Some(Self::Blocks),
-            "dots" => Some(Self::Dots),
+            "soft" => Some(Self::Soft),
+            "lines" => Some(Self::Lines),
+            "sharp" => Some(Self::Sharp),
+            "neon" => Some(Self::Neon),
+            "modern" => Some(Self::Modern),
+            "contemporary" => Some(Self::Contemporary),
             _ => None,
         }
     }
@@ -250,49 +328,293 @@ impl Theme {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_theme_name_default() {
-        assert_eq!(ThemeName::default(), ThemeName::Modern);
+    /// Helper to count occurrences of a substring in a string
+    fn count_occurrences(s: &str, pattern: &str) -> usize {
+        s.matches(pattern).count()
     }
 
     #[test]
-    fn test_theme_name_from_str() {
-        assert_eq!(ThemeName::from_str("modern"), Some(ThemeName::Modern));
-        assert_eq!(ThemeName::from_str("MINIMAL"), Some(ThemeName::Minimal));
+    fn test_theme_name_default_is_neon() {
+        assert_eq!(ThemeName::default(), ThemeName::Neon);
+    }
+
+    #[test]
+    fn test_theme_name_from_str_all_variants() {
+        // All theme names should parse (case-insensitive)
+        for theme in ThemeName::all() {
+            let name = theme.as_str();
+            assert_eq!(ThemeName::from_str(name), Some(*theme));
+            assert_eq!(ThemeName::from_str(&name.to_uppercase()), Some(*theme));
+        }
+        // Unknown names return None
         assert_eq!(ThemeName::from_str("unknown"), None);
+        assert_eq!(ThemeName::from_str(""), None);
     }
 
     #[test]
-    fn test_theme_mini_bar() {
-        let theme = ThemeName::Modern.config();
-        assert_eq!(theme.mini_bar(0.0), "▱▱▱▱▱");
-        assert_eq!(theme.mini_bar(100.0), "▰▰▰▰▰");
-        assert_eq!(theme.mini_bar(40.0), "▰▰▱▱▱");
+    fn test_mini_bar_has_correct_segment_count() {
+        for theme_name in ThemeName::all() {
+            let theme = theme_name.config();
+            let segments = usize::from(theme.bar_segments);
+
+            // 0% should be all empty chars
+            let bar_0 = theme.mini_bar(0.0);
+            assert_eq!(
+                count_occurrences(&bar_0, theme.bar_empty),
+                segments,
+                "Theme {:?} at 0% should have {} empty segments",
+                theme_name,
+                segments
+            );
+
+            // 100% should be all full chars
+            let bar_100 = theme.mini_bar(100.0);
+            assert_eq!(
+                count_occurrences(&bar_100, theme.bar_full),
+                segments,
+                "Theme {:?} at 100% should have {} full segments",
+                theme_name,
+                segments
+            );
+
+            // 50% should have roughly half of each (allowing for rounding)
+            let bar_50 = theme.mini_bar(50.0);
+            let full_count = count_occurrences(&bar_50, theme.bar_full);
+            let empty_count = count_occurrences(&bar_50, theme.bar_empty);
+            assert_eq!(
+                full_count + empty_count,
+                segments,
+                "Theme {:?} at 50% should have {} total segments",
+                theme_name,
+                segments
+            );
+        }
     }
 
     #[test]
-    fn test_theme_wide_bar() {
-        let theme = ThemeName::Modern.config();
-        assert_eq!(theme.wide_bar(0.0), "░░░░░░░░░░");
-        assert_eq!(theme.wide_bar(100.0), "██████████");
-        assert_eq!(theme.wide_bar(50.0), "█████░░░░░");
+    fn test_wide_bar_has_correct_segment_count() {
+        for theme_name in ThemeName::all() {
+            let theme = theme_name.config();
+            let segments = usize::from(theme.menu_bar_segments);
+
+            // 0% should be all empty chars
+            let bar_0 = theme.wide_bar(0.0);
+            assert_eq!(
+                count_occurrences(&bar_0, theme.menu_bar_empty),
+                segments,
+                "Theme {:?} wide bar at 0% should have {} empty segments",
+                theme_name,
+                segments
+            );
+
+            // 100% should be all full chars
+            let bar_100 = theme.wide_bar(100.0);
+            assert_eq!(
+                count_occurrences(&bar_100, theme.menu_bar_full),
+                segments,
+                "Theme {:?} wide bar at 100% should have {} full segments",
+                theme_name,
+                segments
+            );
+        }
     }
 
     #[test]
-    fn test_theme_section_header() {
-        let theme = ThemeName::Modern.config();
-        assert_eq!(theme.section_header("TEST"), "━━━━━━ TEST ━━━━━━");
+    fn test_section_header_contains_title() {
+        for theme_name in ThemeName::all() {
+            let theme = theme_name.config();
+            let header = theme.section_header("TEST");
 
-        let minimal = ThemeName::Minimal.config();
-        assert_eq!(minimal.section_header("TEST"), "[ TEST ]");
+            assert!(
+                header.contains("TEST"),
+                "Theme {:?} header should contain the title",
+                theme_name
+            );
+            assert!(
+                header.starts_with(theme.header_left),
+                "Theme {:?} header should start with header_left",
+                theme_name
+            );
+            assert!(
+                header.ends_with(theme.header_right),
+                "Theme {:?} header should end with header_right",
+                theme_name
+            );
+        }
     }
 
     #[test]
-    fn test_all_themes_have_config() {
-        for name in ThemeName::all() {
-            let config = name.config();
-            assert!(!config.bar_full.is_empty());
-            assert!(!config.bar_empty.is_empty());
+    fn test_loading_label_structure() {
+        for theme_name in ThemeName::all() {
+            let theme = theme_name.config();
+            let label = theme.loading_label();
+
+            // Should contain the loading percentage placeholder
+            assert!(
+                label.contains(theme.loading_pct),
+                "Theme {:?} loading label should contain loading_pct",
+                theme_name
+            );
+
+            // Should start with empty bar (segments * bar_empty chars)
+            let expected_bar = theme.bar_empty.repeat(usize::from(theme.bar_segments));
+            assert!(
+                label.starts_with(&expected_bar),
+                "Theme {:?} loading label should start with {} empty bar segments",
+                theme_name,
+                theme.bar_segments
+            );
+
+            // Should have a space between bar and loading_pct
+            assert!(
+                label.contains(' '),
+                "Theme {:?} loading label should have space separator",
+                theme_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_loading_pct_ends_with_percent() {
+        for theme_name in ThemeName::all() {
+            let theme = theme_name.config();
+            assert!(
+                theme.loading_pct.ends_with('%'),
+                "Theme {:?} loading_pct should end with '%'",
+                theme_name
+            );
+            // Should have at least 2 chars before the %
+            assert!(
+                theme.loading_pct.len() >= 3,
+                "Theme {:?} loading_pct should be at least 3 chars (XX%)",
+                theme_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_label_contains_error_text() {
+        for theme_name in ThemeName::all() {
+            let theme = theme_name.config();
+            let label = theme.error_label();
+
+            assert!(
+                label.contains("Error"),
+                "Theme {:?} error label should contain 'Error'",
+                theme_name
+            );
+            assert!(
+                label.contains(theme.error_icon),
+                "Theme {:?} error label should contain error_icon",
+                theme_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_themes_have_valid_config() {
+        for theme_name in ThemeName::all() {
+            let config = theme_name.config();
+
+            // All string fields should be non-empty
+            assert!(
+                !config.bar_full.is_empty(),
+                "{:?} bar_full empty",
+                theme_name
+            );
+            assert!(
+                !config.bar_empty.is_empty(),
+                "{:?} bar_empty empty",
+                theme_name
+            );
+            assert!(
+                !config.time_icon.is_empty(),
+                "{:?} time_icon empty",
+                theme_name
+            );
+            assert!(
+                !config.menu_bar_full.is_empty(),
+                "{:?} menu_bar_full empty",
+                theme_name
+            );
+            assert!(
+                !config.menu_bar_empty.is_empty(),
+                "{:?} menu_bar_empty empty",
+                theme_name
+            );
+            assert!(
+                !config.header_left.is_empty(),
+                "{:?} header_left empty",
+                theme_name
+            );
+            assert!(
+                !config.header_right.is_empty(),
+                "{:?} header_right empty",
+                theme_name
+            );
+            assert!(
+                !config.error_icon.is_empty(),
+                "{:?} error_icon empty",
+                theme_name
+            );
+            assert!(
+                !config.loading_pct.is_empty(),
+                "{:?} loading_pct empty",
+                theme_name
+            );
+
+            // Segment counts should be reasonable
+            assert!(
+                config.bar_segments >= 3,
+                "{:?} bar_segments too small",
+                theme_name
+            );
+            assert!(
+                config.bar_segments <= 10,
+                "{:?} bar_segments too large",
+                theme_name
+            );
+            assert!(
+                config.menu_bar_segments >= 5,
+                "{:?} menu_bar_segments too small",
+                theme_name
+            );
+            assert!(
+                config.menu_bar_segments <= 20,
+                "{:?} menu_bar_segments too large",
+                theme_name
+            );
+
+            // Full and empty chars should be different
+            assert_ne!(
+                config.bar_full, config.bar_empty,
+                "{:?} bar_full and bar_empty should differ",
+                theme_name
+            );
+            assert_ne!(
+                config.menu_bar_full, config.menu_bar_empty,
+                "{:?} menu_bar_full and menu_bar_empty should differ",
+                theme_name
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_themes_count() {
+        assert_eq!(ThemeName::all().len(), 8);
+    }
+
+    #[test]
+    fn test_as_str_roundtrip() {
+        for theme_name in ThemeName::all() {
+            let s = theme_name.as_str();
+            let parsed = ThemeName::from_str(s);
+            assert_eq!(
+                parsed,
+                Some(*theme_name),
+                "Theme {:?} should roundtrip through as_str/from_str",
+                theme_name
+            );
         }
     }
 }

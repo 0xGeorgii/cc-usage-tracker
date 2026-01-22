@@ -29,8 +29,12 @@ use cli_provider::{kill_all_children, ClaudeCliProvider};
 use gtk::prelude::*;
 use libappindicator::{AppIndicator, AppIndicatorStatus};
 use provider::UsageProvider;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+
+/// Track whether the session is locked to skip UI updates
+static SESSION_LOCKED: AtomicBool = AtomicBool::new(false);
 
 /// Application state shared between the polling task and UI thread.
 #[derive(Debug, Clone)]
@@ -65,8 +69,14 @@ fn create_provider() -> Box<dyn UsageProvider> {
 
 /// Helper to rebuild the menu immediately (used by option toggles)
 fn rebuild_menu_now() {
+    // Skip updates while session is locked to avoid GTK widget errors
+    if SESSION_LOCKED.load(Ordering::Relaxed) {
+        return;
+    }
+
     if let Some(wrapper) = UI_CONTEXT.get() {
         let ptr = wrapper.0;
+        // SAFETY: UI_CONTEXT is only accessed from GTK main thread
         unsafe {
             if let Some(state_lock) = STATE.get() {
                 let state_snapshot = state_lock.read().unwrap().clone();
@@ -80,84 +90,73 @@ fn rebuild_menu_now() {
     }
 }
 
+/// Build a compact usage row: header with stats + progress bar
+fn build_usage_row(menu: &gtk::Menu, label: &str, utilization: f64, reset_time: &str) {
+    // Header line with inline stats: [ SESSION ]  20%  ·  Resets in 3h 42m
+    let header = gtk::MenuItem::with_label(&format!(
+        "{} {:.0}% · {}",
+        display::format_section_header(label),
+        utilization,
+        reset_time
+    ));
+    header.set_sensitive(false);
+    menu.append(&header);
+
+    // Progress bar
+    let bar = display::wide_progress_bar(utilization);
+    let bar_item = gtk::MenuItem::with_label(&bar);
+    bar_item.set_sensitive(false);
+    menu.append(&bar_item);
+}
+
 /// Build the usage data sections (session, weekly, sonnet)
 fn build_usage_sections(menu: &gtk::Menu, usage: &api::UsageResponse) {
-    // Session section
-    let session_header = gtk::MenuItem::with_label(&display::format_section_header("SESSION (5h)"));
-    session_header.set_sensitive(false);
-    menu.append(&session_header);
+    // Session
+    build_usage_row(
+        menu,
+        "SESSION",
+        usage.five_hour.utilization,
+        &format!(
+            "Resets in {}",
+            display::format_time_until_short(usage.five_hour.resets_at)
+        ),
+    );
 
-    let session_bar = display::wide_progress_bar(usage.five_hour.utilization);
-    let session_item = gtk::MenuItem::with_label(&format!(
-        "{session_bar}  {:.0}%",
-        usage.five_hour.utilization
-    ));
-    session_item.set_sensitive(false);
-    menu.append(&session_item);
+    // Weekly
+    build_usage_row(
+        menu,
+        "WEEKLY",
+        usage.seven_day.utilization,
+        &format!(
+            "Resets in {}",
+            display::format_time_until_short(usage.seven_day.resets_at)
+        ),
+    );
 
-    let session_reset = gtk::MenuItem::with_label(&format!(
-        "{} Resets in {}",
-        display::session_icon(),
-        display::format_time_until_short(usage.five_hour.resets_at)
-    ));
-    session_reset.set_sensitive(false);
-    menu.append(&session_reset);
-
-    // Weekly section
-    let weekly_header = gtk::MenuItem::with_label(&display::format_section_header("WEEKLY (7d)"));
-    weekly_header.set_sensitive(false);
-    menu.append(&weekly_header);
-
-    let weekly_bar = display::wide_progress_bar(usage.seven_day.utilization);
-    let weekly_item = gtk::MenuItem::with_label(&format!(
-        "{weekly_bar}  {:.0}%",
-        usage.seven_day.utilization
-    ));
-    weekly_item.set_sensitive(false);
-    menu.append(&weekly_item);
-
-    let weekly_reset = gtk::MenuItem::with_label(&format!(
-        "{} Resets in {}",
-        display::weekly_icon(),
-        display::format_time_until_short(usage.seven_day.resets_at)
-    ));
-    weekly_reset.set_sensitive(false);
-    menu.append(&weekly_reset);
-
-    // Sonnet section (if available and enabled)
+    // Sonnet (if available and enabled)
     if display::show_sonnet() {
         if let Some(ref sonnet) = usage.seven_day_opus {
-            let sonnet_header =
-                gtk::MenuItem::with_label(&display::format_section_header("SONNET (7d)"));
-            sonnet_header.set_sensitive(false);
-            menu.append(&sonnet_header);
-
-            let sonnet_bar = display::wide_progress_bar(sonnet.utilization);
-            let sonnet_item =
-                gtk::MenuItem::with_label(&format!("{sonnet_bar}  {:.0}%", sonnet.utilization));
-            sonnet_item.set_sensitive(false);
-            menu.append(&sonnet_item);
+            build_usage_row(menu, "SONNET", sonnet.utilization, "7-day window");
         }
     }
 
-    // Updated time footer
+    // Updated time (smaller, at end of status section)
     if display::show_updated_time() {
-        menu.append(&gtk::SeparatorMenuItem::new());
         let updated_item =
-            gtk::MenuItem::with_label(&format!("Updated: {}", display::format_current_time()));
+            gtk::MenuItem::with_label(&format!("Updated {}", display::format_current_time()));
         updated_item.set_sensitive(false);
         menu.append(&updated_item);
     }
 }
 
-/// Build the options submenu with toggle items
-fn build_options_submenu() -> gtk::Menu {
+/// Build the Display settings submenu
+fn build_display_submenu() -> gtk::Menu {
     let submenu = gtk::Menu::new();
 
     let sonnet_label = if display::show_sonnet() {
         "● Show Sonnet"
     } else {
-        "  Show Sonnet"
+        "○ Show Sonnet"
     };
     let sonnet_toggle = gtk::MenuItem::with_label(sonnet_label);
     sonnet_toggle.connect_activate(|_| {
@@ -169,7 +168,7 @@ fn build_options_submenu() -> gtk::Menu {
     let updated_label = if display::show_updated_time() {
         "● Show Updated Time"
     } else {
-        "  Show Updated Time"
+        "○ Show Updated Time"
     };
     let updated_toggle = gtk::MenuItem::with_label(updated_label);
     updated_toggle.connect_activate(|_| {
@@ -178,22 +177,10 @@ fn build_options_submenu() -> gtk::Menu {
     });
     submenu.append(&updated_toggle);
 
-    let theme_sel_label = if display::show_theme_selector() {
-        "● Show Theme Selector"
-    } else {
-        "  Show Theme Selector"
-    };
-    let theme_sel_toggle = gtk::MenuItem::with_label(theme_sel_label);
-    theme_sel_toggle.connect_activate(|_| {
-        display::toggle_theme_selector();
-        rebuild_menu_now();
-    });
-    submenu.append(&theme_sel_toggle);
-
     submenu
 }
 
-/// Build the update interval submenu
+/// Build the Update Interval settings submenu
 fn build_interval_submenu() -> gtk::Menu {
     let submenu = gtk::Menu::new();
     let current_interval = display::update_interval_secs();
@@ -202,7 +189,7 @@ fn build_interval_submenu() -> gtk::Menu {
         let item_label = if *secs == current_interval {
             format!("● {label}")
         } else {
-            format!("  {label}")
+            format!("○ {label}")
         };
         let interval_option = gtk::MenuItem::with_label(&item_label);
         let secs_to_set = *secs;
@@ -216,7 +203,7 @@ fn build_interval_submenu() -> gtk::Menu {
     submenu
 }
 
-/// Build the theme selection submenu
+/// Build the Theme settings submenu
 fn build_theme_submenu() -> gtk::Menu {
     let submenu = gtk::Menu::new();
     let current = display::current_theme_name();
@@ -225,7 +212,7 @@ fn build_theme_submenu() -> gtk::Menu {
         let label = if *theme_name == current {
             format!("● {}", theme_name.as_str())
         } else {
-            format!("  {}", theme_name.as_str())
+            format!("○ {}", theme_name.as_str())
         };
         let theme_option = gtk::MenuItem::with_label(&label);
         let theme_to_set = *theme_name;
@@ -239,10 +226,193 @@ fn build_theme_submenu() -> gtk::Menu {
     submenu
 }
 
+/// Build the consolidated Settings submenu
+fn build_settings_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
+
+    // Display submenu with inline status
+    let display_count = [display::show_sonnet(), display::show_updated_time()]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+    let display_item = gtk::MenuItem::with_label(&format!("Display: {display_count} on"));
+    display_item.set_submenu(Some(&build_display_submenu()));
+    submenu.append(&display_item);
+
+    // Update Interval submenu with inline current value
+    let current_interval = display::update_interval_secs();
+    let interval_label = display::update_interval_options()
+        .iter()
+        .find(|(secs, _)| *secs == current_interval)
+        .map_or("1 min", |(_, label)| label);
+    let interval_item = gtk::MenuItem::with_label(&format!("Update: {interval_label}"));
+    interval_item.set_submenu(Some(&build_interval_submenu()));
+    submenu.append(&interval_item);
+
+    // Theme submenu with inline current theme
+    let current_theme = display::current_theme_name();
+    let theme_item = gtk::MenuItem::with_label(&format!("Theme: {}", current_theme.as_str()));
+    theme_item.set_submenu(Some(&build_theme_submenu()));
+    submenu.append(&theme_item);
+
+    submenu
+}
+
+/// Schedule a timer to trigger at the specified time for a specific period
+fn schedule_timer_at(period: display::TimePeriod, target_time: chrono::DateTime<chrono::Local>) {
+    use chrono::Local;
+
+    // Store the scheduled time for this period
+    display::set_scheduled_timer(period, target_time);
+    rebuild_menu_now();
+
+    // Calculate delay until target time
+    let now = Local::now();
+    let delay = target_time.signed_duration_since(now);
+
+    if delay.num_seconds() <= 0 {
+        // Time is in the past or now - trigger immediately
+        trigger_timer_now(period);
+        return;
+    }
+
+    // Schedule using glib timeout
+    let delay_ms = u64::try_from(delay.num_milliseconds().max(0)).unwrap_or(u64::MAX);
+    glib::timeout_add_once(std::time::Duration::from_millis(delay_ms), move || {
+        trigger_timer_now(period);
+    });
+
+    eprintln!(
+        "[timer] {} scheduled for {} ({} seconds from now)",
+        period.name(),
+        target_time.format("%-I:%M %p"),
+        delay.num_seconds()
+    );
+}
+
+/// Trigger the timer start message now for a specific period
+fn trigger_timer_now(period: display::TimePeriod) {
+    // Spawn a thread to run the async code
+    std::thread::spawn(move || {
+        // Create a small tokio runtime for this operation
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create tokio runtime");
+
+        rt.block_on(async {
+            match cli_provider::send_timer_start_message().await {
+                Ok(()) => eprintln!("[timer] {} timer message sent successfully", period.name()),
+                Err(e) => eprintln!(
+                    "[timer] Failed to send {} timer message: {e}",
+                    period.name()
+                ),
+            }
+        });
+
+        // Clear the scheduled timer for this period and refresh menu on GTK main thread
+        glib::idle_add_once(move || {
+            display::clear_scheduled_timer(period);
+            rebuild_menu_now();
+        });
+    });
+}
+
+/// Build a time period submenu (e.g., Morning with hourly slots)
+fn build_time_period_submenu(period: display::TimePeriod) -> gtk::Menu {
+    use chrono::{Local, TimeZone};
+
+    let submenu = gtk::Menu::new();
+    let now = Local::now();
+    let (start_hour, end_hour) = period.hour_range();
+
+    for hour in start_hour..end_hour {
+        // Create target time for today at this hour
+        let target: Option<chrono::DateTime<Local>> = now
+            .date_naive()
+            .and_hms_opt(hour, 0, 0)
+            .and_then(|dt| Local.from_local_datetime(&dt).single());
+
+        let Some(mut target_time) = target else {
+            continue;
+        };
+
+        // If the time has passed today, schedule for tomorrow
+        if target_time <= now {
+            target_time += chrono::Duration::days(1);
+        }
+
+        // Format label (e.g., "8:00 AM" or "8:00 AM (tomorrow)")
+        let is_tomorrow = target_time.date_naive() != now.date_naive();
+        let label = if is_tomorrow {
+            format!("{} (tomorrow)", target_time.format("%-I:%M %p"))
+        } else {
+            target_time.format("%-I:%M %p").to_string()
+        };
+
+        let time_item = gtk::MenuItem::with_label(&label);
+        time_item.connect_activate(move |_| {
+            schedule_timer_at(period, target_time);
+        });
+        submenu.append(&time_item);
+    }
+
+    // Add cancel option if this period has a scheduled timer
+    if display::scheduled_timer(period).is_some() {
+        submenu.append(&gtk::SeparatorMenuItem::new());
+        let cancel_item = gtk::MenuItem::with_label("Cancel");
+        cancel_item.connect_activate(move |_| {
+            display::clear_scheduled_timer(period);
+            rebuild_menu_now();
+            eprintln!("[timer] {} timer cancelled", period.name());
+        });
+        submenu.append(&cancel_item);
+    }
+
+    submenu
+}
+
+/// Build the Schedule Timer submenu with Morning/Afternoon/Evening submenus
+fn build_timer_submenu() -> gtk::Menu {
+    let submenu = gtk::Menu::new();
+
+    for &period in display::TimePeriod::all() {
+        // Show dot if timer is scheduled for this period
+        let scheduled_time = display::scheduled_timer(period);
+        let label = if let Some(time) = scheduled_time {
+            format!("● {} ({})", period.name(), time.format("%-I:%M %p"))
+        } else {
+            format!("○ {}", period.name())
+        };
+
+        let period_item = gtk::MenuItem::with_label(&label);
+        period_item.set_submenu(Some(&build_time_period_submenu(period)));
+        submenu.append(&period_item);
+    }
+
+    // Cancel All Timers (if any are scheduled)
+    if display::has_any_scheduled_timer() {
+        submenu.append(&gtk::SeparatorMenuItem::new());
+        let cancel_all = gtk::MenuItem::with_label("Cancel All Timers");
+        cancel_all.connect_activate(|_| {
+            for &period in display::TimePeriod::all() {
+                display::clear_scheduled_timer(period);
+            }
+            rebuild_menu_now();
+            eprintln!("[timer] All timers cancelled");
+        });
+        submenu.append(&cancel_all);
+    }
+
+    submenu
+}
+
 fn build_menu(state: &AppState) -> gtk::Menu {
     let menu = gtk::Menu::new();
 
-    // Content section: usage data, error, or loading
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ZONE 1: Status (usage data, error, or loading)
+    // ═══════════════════════════════════════════════════════════════════════════
     if let Some(ref usage) = state.usage {
         build_usage_sections(&menu, usage);
     } else if let Some(ref error) = state.error {
@@ -268,27 +438,48 @@ fn build_menu(state: &AppState) -> gtk::Menu {
         menu.append(&loading_item);
     }
 
-    // Separator before settings
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ZONE 2: Timer scheduling
+    // ═══════════════════════════════════════════════════════════════════════════
     menu.append(&gtk::SeparatorMenuItem::new());
 
-    // Options submenu
-    let options_item = gtk::MenuItem::with_label("Options");
-    options_item.set_submenu(Some(&build_options_submenu()));
-    menu.append(&options_item);
-
-    // Update Interval submenu
-    let interval_item = gtk::MenuItem::with_label("Update Interval");
-    interval_item.set_submenu(Some(&build_interval_submenu()));
-    menu.append(&interval_item);
-
-    // Theme submenu (if enabled)
-    if display::show_theme_selector() {
-        let theme_item = gtk::MenuItem::with_label("Theme");
-        theme_item.set_submenu(Some(&build_theme_submenu()));
-        menu.append(&theme_item);
+    // Show consolidated scheduled timers status
+    let scheduled = display::all_scheduled_timers();
+    if !scheduled.is_empty() {
+        let times: Vec<String> = scheduled
+            .iter()
+            .map(|(_, time)| time.format("%-I:%M %p").to_string())
+            .collect();
+        let timer_status =
+            gtk::MenuItem::with_label(&format!("⏰ Scheduled: {}", times.join(", ")));
+        timer_status.set_sensitive(false);
+        menu.append(&timer_status);
     }
 
-    // Quit item
+    // Schedule Timer submenu
+    let timer_label = if display::has_any_scheduled_timer() {
+        "Schedule Timer ⏰"
+    } else {
+        "Schedule Timer"
+    };
+    let timer_item = gtk::MenuItem::with_label(timer_label);
+    timer_item.set_submenu(Some(&build_timer_submenu()));
+    menu.append(&timer_item);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ZONE 3: Settings
+    // ═══════════════════════════════════════════════════════════════════════════
+    menu.append(&gtk::SeparatorMenuItem::new());
+
+    let settings_item = gtk::MenuItem::with_label("Settings");
+    settings_item.set_submenu(Some(&build_settings_submenu()));
+    menu.append(&settings_item);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ZONE 4: Quit
+    // ═══════════════════════════════════════════════════════════════════════════
+    menu.append(&gtk::SeparatorMenuItem::new());
+
     let quit_item = gtk::MenuItem::with_label(&format!("{} Quit", display::quit_icon()));
     quit_item.connect_activate(|_| {
         gtk::main_quit();
@@ -319,20 +510,9 @@ static UI_CONTEXT: std::sync::OnceLock<UiContextPtr> = std::sync::OnceLock::new(
 /// Global app state for access from menu callbacks.
 static STATE: std::sync::OnceLock<Arc<RwLock<AppState>>> = std::sync::OnceLock::new();
 
-#[tokio::main]
-async fn main() {
-    // Initialize GTK first
-    gtk::init().expect("Failed to initialize GTK");
-
-    let provider = create_provider();
-    let state = Arc::new(RwLock::new(AppState::new()));
-
-    // Store state globally for menu callbacks
-    STATE.set(Arc::clone(&state)).ok();
-
-    // Create AppIndicator with a transparent icon (we only use the label)
-    // Get path to assets directory - try multiple locations
-    let icon_theme_path = std::env::current_exe()
+/// Find the assets directory path, checking multiple locations.
+fn find_assets_path() -> String {
+    std::env::current_exe()
         .ok()
         .and_then(|exe| {
             // Try next to the executable
@@ -350,31 +530,11 @@ async fn main() {
             None
         })
         // Fallback to compile-time path for development
-        .unwrap_or_else(|| format!("{}/assets", env!("CARGO_MANIFEST_DIR")));
+        .unwrap_or_else(|| format!("{}/assets", env!("CARGO_MANIFEST_DIR")))
+}
 
-    let mut indicator = AppIndicator::new("Claude Code Usage", "transparent");
-    indicator.set_icon_theme_path(&icon_theme_path);
-    indicator.set_label(&display::format_loading_label(), "");
-    indicator.set_status(AppIndicatorStatus::Active); // Set active AFTER label to avoid blank flash
-
-    // Build initial menu
-    let initial_state = state.read().unwrap();
-    let mut menu = build_menu(&initial_state);
-    drop(initial_state);
-    indicator.set_menu(&mut menu);
-
-    // Store UI context for access from idle callbacks
-    let ui_context = Box::new(UiContext {
-        indicator,
-        current_menu: Some(menu),
-    });
-    let ui_ptr = Box::into_raw(ui_context);
-    UI_CONTEXT.set(UiContextPtr(ui_ptr)).ok();
-
-    println!("cc-usage-tracker started");
-    println!("Look for the indicator in your system tray.");
-
-    // Spawn signal handler for graceful shutdown
+/// Spawn the signal handler for graceful shutdown.
+fn spawn_signal_handler() {
     tokio::spawn(async {
         use tokio::signal::unix::{signal, SignalKind};
 
@@ -390,21 +550,21 @@ async fn main() {
             }
         }
 
-        // Kill all tracked child processes to prevent orphans
         kill_all_children();
-
-        // Quit GTK main loop
-        glib::idle_add_once(|| {
-            gtk::main_quit();
-        });
+        glib::idle_add_once(gtk::main_quit);
     });
+}
 
-    // Clone for polling
-    let poll_state = Arc::clone(&state);
-
-    // Spawn polling task
+/// Spawn the polling task that fetches usage data periodically.
+fn spawn_polling_task(provider: Box<dyn UsageProvider>, state: Arc<RwLock<AppState>>) {
     tokio::spawn(async move {
         loop {
+            // Skip fetching entirely when session is locked - no one is there to see updates
+            if SESSION_LOCKED.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_secs(display::update_interval_secs())).await;
+                continue;
+            }
+
             let timestamp = Local::now().format("%H:%M:%S");
             eprintln!("[{timestamp}] Fetching usage data...");
 
@@ -416,36 +576,32 @@ async fn main() {
                         usage.five_hour.utilization,
                         usage.seven_day.utilization
                     );
-                    let mut s = poll_state.write().unwrap();
+                    let mut s = state.write().unwrap();
                     s.usage = Some(usage);
                     s.error = None;
-                    true // Update UI on success
+                    true
                 }
                 Err(e) => {
                     eprintln!("[{}] Error: {}", Local::now().format("%H:%M:%S"), e);
-                    let mut s = poll_state.write().unwrap();
+                    let mut s = state.write().unwrap();
                     s.error = Some(e.clone());
-                    // Only update UI if we already have data (to show error in menu)
-                    // Otherwise keep showing loading indicator
                     s.usage.is_some()
                 }
             };
 
-            // Only update UI if we have data or successfully fetched
             if should_update_ui {
-                let state_for_idle = Arc::clone(&poll_state);
+                let state_for_idle = Arc::clone(&state);
                 glib::idle_add_once(move || {
                     let state_snapshot = state_for_idle.read().unwrap().clone();
                     let label = state_snapshot.format_label();
                     let mut new_menu = build_menu(&state_snapshot);
 
-                    // SAFETY: UI_CONTEXT is only accessed from GTK main thread
                     if let Some(wrapper) = UI_CONTEXT.get() {
                         let ptr = wrapper.0;
+                        // SAFETY: UI_CONTEXT is only accessed from GTK main thread
                         unsafe {
                             (*ptr).indicator.set_label(&label, "");
                             (*ptr).indicator.set_menu(&mut new_menu);
-                            // Drop old menu, store new one (fixes memory leak)
                             (*ptr).current_menu = Some(new_menu);
                         }
                     }
@@ -455,7 +611,114 @@ async fn main() {
             tokio::time::sleep(Duration::from_secs(display::update_interval_secs())).await;
         }
     });
+}
 
-    // Run GTK main loop
+/// Watch for system sleep/wake and session lock/unlock events via D-Bus.
+///
+/// Listens to:
+/// - `org.freedesktop.login1.Manager.PrepareForSleep` - system sleep/wake
+/// - `org.freedesktop.login1.Session.Lock/Unlock` - screen lock/unlock
+async fn watch_system_events() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use futures_util::StreamExt;
+    use zbus::Connection;
+
+    let connection = Connection::system().await?;
+
+    // Match both Manager signals (sleep) and Session signals (lock)
+    let rule = zbus::match_rule::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.freedesktop.login1.Manager")?
+        .build();
+
+    let session_rule = zbus::match_rule::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.freedesktop.login1.Session")?
+        .build();
+
+    let mut stream = zbus::MessageStream::for_match_rule(rule, &connection, None).await?;
+    let mut session_stream =
+        zbus::MessageStream::for_match_rule(session_rule, &connection, None).await?;
+
+    eprintln!("[events] Watching for sleep/wake and lock/unlock events");
+
+    loop {
+        tokio::select! {
+            Some(msg) = stream.next() => {
+                if let Ok(msg) = msg {
+                    let member = msg.header().member().map(ToString::to_string);
+                    if member.as_deref() == Some("PrepareForSleep") {
+                        if let Ok((going_to_sleep,)) = msg.body().deserialize::<(bool,)>() {
+                            if going_to_sleep {
+                                eprintln!("[events] System going to sleep");
+                                SESSION_LOCKED.store(true, Ordering::Relaxed);
+                            } else {
+                                eprintln!("[events] System waking up, refreshing in 1s");
+                                SESSION_LOCKED.store(false, Ordering::Relaxed);
+                                glib::timeout_add_once(Duration::from_secs(1), rebuild_menu_now);
+                            }
+                        }
+                    }
+                }
+            }
+            Some(msg) = session_stream.next() => {
+                if let Ok(msg) = msg {
+                    let member = msg.header().member().map(ToString::to_string);
+                    match member.as_deref() {
+                        Some("Lock") => {
+                            eprintln!("[events] Session locked - pausing UI updates");
+                            SESSION_LOCKED.store(true, Ordering::Relaxed);
+                        }
+                        Some("Unlock") => {
+                            eprintln!("[events] Session unlocked, refreshing in 1s");
+                            SESSION_LOCKED.store(false, Ordering::Relaxed);
+                            glib::timeout_add_once(Duration::from_secs(1), rebuild_menu_now);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    gtk::init().expect("Failed to initialize GTK");
+
+    let provider = create_provider();
+    let state = Arc::new(RwLock::new(AppState::new()));
+    STATE.set(Arc::clone(&state)).ok();
+
+    // Create and configure the AppIndicator
+    let mut indicator = AppIndicator::new("Claude Code Usage", "transparent");
+    indicator.set_icon_theme_path(&find_assets_path());
+    indicator.set_label("...", "");
+    indicator.set_status(AppIndicatorStatus::Active);
+
+    // Build initial menu
+    let initial_state = state.read().unwrap();
+    let mut menu = build_menu(&initial_state);
+    drop(initial_state);
+    indicator.set_menu(&mut menu);
+
+    // Store UI context globally for access from callbacks
+    let ui_context = Box::new(UiContext {
+        indicator,
+        current_menu: Some(menu),
+    });
+    UI_CONTEXT.set(UiContextPtr(Box::into_raw(ui_context))).ok();
+
+    println!("cc-usage-tracker started");
+    println!("Look for the indicator in your system tray.");
+
+    // Spawn background tasks
+    spawn_signal_handler();
+    spawn_polling_task(provider, Arc::clone(&state));
+    tokio::spawn(async {
+        if let Err(e) = watch_system_events().await {
+            eprintln!("[events] Failed to watch for system events: {e}");
+        }
+    });
+
     gtk::main();
 }

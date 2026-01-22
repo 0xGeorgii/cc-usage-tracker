@@ -24,3 +24,5 @@ pty-process = { version = "0.4", features = ["async"] }
 nix = { version = "0.29", features = ["signal", "process"] }
 tokio-io-timeout = "1.2"
 pin-project-lite = "0.2"
+zbus = "5"
+futures-util = "0.3"
